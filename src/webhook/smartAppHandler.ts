@@ -39,6 +39,7 @@ export interface SmartAppRequest {
   executionId?: string;
   locale?: string;
   version?: string;
+  appId?: string;
 
   // PING lifecycle
   pingData?: {

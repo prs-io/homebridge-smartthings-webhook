@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.1] - Security & Validation
+
+### Added
+
+- **SmartApp ID Validation**: New `smartapp_id` config option to validate incoming webhook requests
+  - Only requests with matching `appId` are accepted (403 for others)
+  - Configurable via UI in the "SmartThings Webhook Setup" page
+  - Get your SmartApp ID using `smartthings apps` CLI command
+
+### Changed
+
+- **Improved Security**: Webhook requests can now be validated against your specific SmartApp ID
+- **Updated UI**: SmartApp ID field added to the setup wizard
+
+---
+
 ## [2.0.0] - Direct Webhook Support (Major Release)
 
 ### Added

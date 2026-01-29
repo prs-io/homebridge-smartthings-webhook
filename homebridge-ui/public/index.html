@@ -27,6 +27,16 @@
                         </small>
                     </div>
 
+                    <div class="form-group">
+                        <label for="setup-smartapp-id" class="font-weight-bold">SmartApp ID (Optional)</label>
+                        <input type="text" class="form-control" id="setup-smartapp-id"
+                            placeholder="e.g., From  developer.smartthings.com/workspace">
+                        <small class="form-text text-muted">
+                            Your SmartApp ID for webhook validation. Get this from <code>smartthings apps</code> CLI command.
+                            If set, only requests with matching appId will be accepted.
+                        </small>
+                    </div>
+
                     <hr>
                     <h6>SmartThings OAuth Credentials</h6>
                     <p class="text-muted small">
@@ -132,6 +142,9 @@
             if (config.webhook_port) {
                 document.getElementById('setup-webhook-port').value = config.webhook_port;
             }
+            if (config.smartapp_id) {
+                document.getElementById('setup-smartapp-id').value = config.smartapp_id;
+            }
             if (config.client_id) {
                 document.getElementById('setup-client-id').value = config.client_id;
             }
@@ -233,6 +246,12 @@
     document.getElementById('setup-webhook-port').addEventListener('change', async function() {
         const pluginConfig = await homebridge.getPluginConfig();
         pluginConfig[0].webhook_port = parseInt(this.value, 10) || 3000;
+        await homebridge.updatePluginConfig(pluginConfig);
+    });
+
+    document.getElementById('setup-smartapp-id').addEventListener('change', async function() {
+        const pluginConfig = await homebridge.getPluginConfig();
+        pluginConfig[0].smartapp_id = this.value || undefined;
         await homebridge.updatePluginConfig(pluginConfig);
     });
 

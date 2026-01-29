@@ -21,13 +21,13 @@ export class WebhookServer {
     // Direct webhook mode is enabled by default (webhook server always runs)
     // Can be explicitly disabled with use_direct_webhook: false
     this.useDirectWebhook = this.platform.config.use_direct_webhook !== false;
-    
+
     // Initialize SmartApp handler for direct webhooks
     if (this.useDirectWebhook) {
       this.smartAppHandler = new SmartAppHandler(this.platform, this.log);
       this.log.info('Direct SmartThings webhook mode enabled');
     }
-    
+
     // Always start the webhook server - it handles:
     // 1. OAuth callbacks for token exchange
     // 2. SmartApp lifecycle events (direct webhook mode)
@@ -124,10 +124,19 @@ export class WebhookServer {
         try {
           const request = JSON.parse(body) as SmartAppRequest;
           this.log.debug(`SmartApp request: ${request.lifecycle}`);
-          
+
+          // Validate appId if configured
+          const configuredAppId = this.platform.config.smartapp_id;
+          if (configuredAppId && request.appId !== configuredAppId) {
+            this.log.warn(`Rejected request with invalid appId: ${request.appId} (expected: ${configuredAppId})`);
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid' }));
+            return;
+          }
+
           // Handle the SmartApp lifecycle request
           const response = await this.smartAppHandler!.handleRequest(request);
-          
+
           res.writeHead(response.statusCode || 200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(response));
         } catch (error) {
@@ -193,4 +202,4 @@ export class WebhookServer {
   public isServerRunning(): boolean {
     return this.isRunning;
   }
-} 
+}

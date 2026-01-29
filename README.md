@@ -425,13 +425,14 @@ If you need to completely reset the plugin authentication:
 
 ## Configuration Options
 
-| Option                         | Type    | Default | Description                             |
-| ------------------------------ | ------- | ------- | --------------------------------------- |
-| `use_direct_webhook`           | boolean | `false` | Enable direct SmartThings webhooks      |
-| `server_url`                   | string  | \-      | Public URL for webhooks                 |
-| `webhook_port`                 | number  | `3000`  | Local port for webhook server           |
-| `PollSensorsSeconds`           | number  | `5`     | Polling interval for sensors (fallback) |
-| `PollSwitchesAndLightsSeconds` | number  | `10`    | Polling interval for switches           |
+| Option                         | Type    | Default | Description                                |
+| ------------------------------ | ------- | ------- | ------------------------------------------ |
+| `use_direct_webhook`           | boolean | `true`  | Enable direct SmartThings webhooks         |
+| `server_url`                   | string  | \-      | Public URL for webhooks                    |
+| `webhook_port`                 | number  | `3000`  | Local port for webhook server              |
+| `smartapp_id`                  | string  | \-      | SmartApp ID for webhook request validation |
+| `PollSensorsSeconds`           | number  | `5`     | Polling interval for sensors (fallback)    |
+| `PollSwitchesAndLightsSeconds` | number  | `10`    | Polling interval for switches              |
 
 ---
 

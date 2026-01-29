@@ -1,8 +1,8 @@
 {
   "private": false,
   "displayName": "Homebridge Smartthings Webhook Plugin",
-  "name": "homebridge-smartthings-webhook",
-  "version": "2.0.0",
+  "name": "@prs.io/homebridge-smartthings-webhook",
+  "version": "2.0.1",
   "description": "Connects SmartThings devices to Homebridge.  Automatically discovers devices.",
   "license": "Apache-2.0",
   "repository": {
@@ -48,14 +48,9 @@
     "ts-node": "^10.3.0",
     "typescript": "^5.0.0"
   },
-  "funding": [
-    {
-      "type": "paypal",
-      "url": "https://www.paypal.com/paypalme/iklein99"
-    },
-    {
-      "type": "venmo",
-      "url": "https://venmo.com/?txn=pay&audience=public&recipients=ira-klein-3"
-    }
+  "files": [
+    "dist/",
+    "homebridge-ui/",
+    "config.schema.json"
   ]
 }

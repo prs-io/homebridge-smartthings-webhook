@@ -447,7 +447,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for version history.
 Special thanks to:
 
 - [@iklein99](https://github.com/iklein99/) - Original [homebridge-smartthings](https://github.com/iklein99/homebridge-smartthings) plugin
-- [@aziz66](https://github.com/aziz66/) - [homebridge-smartthings fork](https://github.com/aziz66/homebridge-smartthings) with direct webhook support
+- [@aziz66](https://github.com/aziz66/) - [homebridge-smartthings fork](https://github.com/aziz66/homebridge-smartthings) with oAuth
 
 This plugin builds upon their excellent work to provide real-time SmartThings integration for Homebridge.
 

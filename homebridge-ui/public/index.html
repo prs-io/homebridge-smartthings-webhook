@@ -1,0 +1,285 @@
+<div class="container">
+    <!-- State 1: Initial Setup - Server URL + OAuth Credentials -->
+    <div id="state-webhook-setup" style="display:none">
+        <div class="card">
+            <div class="card-header">
+                <h5>SmartThings Webhook Setup</h5>
+            </div>
+            <div class="card-body">
+                <p>Configure your webhook and SmartThings OAuth credentials.</p>
+                
+                <form id="webhookSetupForm">
+                    <h6 class="mt-3">Webhook Settings</h6>
+                    <div class="form-group">
+                        <label for="setup-server-url" class="font-weight-bold">Server URL</label>
+                        <input type="text" class="form-control" id="setup-server-url"
+                            placeholder="e.g., https://your-domain.ngrok-free.dev">
+                        <small class="form-text text-muted">
+                            Your public webhook URL. Use ngrok or similar to expose the webhook server (port 3000) to the internet.
+                        </small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="setup-webhook-port" class="font-weight-bold">Webhook Port</label>
+                        <input type="number" class="form-control" id="setup-webhook-port" value="3000" min="1024" max="65535">
+                        <small class="form-text text-muted">
+                            Local port for the webhook server. Default is 3000.
+                        </small>
+                    </div>
+
+                    <hr>
+                    <h6>SmartThings OAuth Credentials</h6>
+                    <p class="text-muted small">
+                        Create a SmartThings OAuth app using the 
+                        <a href="https://github.com/SmartThingsCommunity/smartthings-cli" target="_blank">SmartThings CLI</a>.
+                        Use scopes: <code>r:devices:* x:devices:* r:locations:*</code>
+                    </p>
+
+                    <div class="form-group">
+                        <label for="setup-client-id" class="font-weight-bold">OAuth Client ID</label>
+                        <input type="text" class="form-control" id="setup-client-id"
+                            placeholder="From SmartThings CLI">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="setup-client-secret" class="font-weight-bold">OAuth Client Secret</label>
+                        <input type="password" class="form-control" id="setup-client-secret"
+                            placeholder="From SmartThings CLI">
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- State 2: Authorization Required - Show auth URL -->
+    <div id="state-oauth-wizard" style="display:none">
+        <div class="alert alert-warning">
+            <strong>SmartThings Authentication Required</strong>
+            <p class="mb-0">Click the button below to authorize with SmartThings.</p>
+        </div>
+        
+        <div class="card">
+            <div class="card-body">
+                <h5>Authorize SmartThings</h5>
+                <p>Click the button to open the SmartThings authorization page. After authorizing, you'll be redirected back automatically.</p>
+                
+                <div class="form-group">
+                    <label class="font-weight-bold">OAuth Redirect URL (for reference)</label>
+                    <input type="text" class="form-control" id="oauth-redirect-url" readonly>
+                </div>
+
+                <button class="btn btn-primary btn-lg" onclick="openSmartThingsLogin()">
+                    Authorize with SmartThings
+                </button>
+                
+                <hr>
+                <p class="text-muted small mb-0">
+                    After successful authorization from SmartThings, come back and click Save.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- State 3: OAuth configured - Show full config form -->
+    <div id="state-configured" style="display:none">
+        <div class="alert alert-success">
+            <strong>✅ SmartThings Connected</strong>
+            <p class="mb-0">Your SmartThings connection is configured. Modify settings below.</p>
+        </div>
+        <div class="mb-3">
+            <button class="btn btn-outline-primary btn-sm" id="btn-reauthorize">Re-authorize SmartThings</button>
+            <button class="btn btn-outline-danger btn-sm ml-2" id="btn-clear-tokens">Clear All Tokens</button>
+            <p class="text-muted small mt-2 mb-0">
+                <strong>Note:</strong> After clearing tokens, you should also remove the SmartApp from your SmartThings mobile app:
+                <br>SmartThings App → Menu → SmartApps → Find "Homebridge SmartThings" → Delete
+            </p>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function updateUi() {
+        try {
+            const pluginConfig = await homebridge.getPluginConfig();
+
+            if (pluginConfig.length === 0) {
+                pluginConfig[0] = {
+                    platform: "HomeBridgeSmartThings",
+                    name: "SmartThings",
+                    BaseURL: "https://api.smartthings.com/v1/"
+                };
+                await homebridge.updatePluginConfig(pluginConfig);
+            }
+
+            const config = pluginConfig[0];
+
+            // Check if initial setup is done (server_url + client credentials)
+            const initialSetupDone = !!(config.server_url && config.client_id && config.client_secret);
+
+            // Check if authorized (check file via server endpoint)
+            let isAuthorized = false;
+            try {
+                const authStatus = await homebridge.request('/checkAuthorized');
+                isAuthorized = authStatus.authorized;
+            } catch (err) {
+                isAuthorized = false;
+            }
+
+            // Pre-fill State 1 fields
+            if (config.server_url) {
+                document.getElementById('setup-server-url').value = config.server_url;
+            }
+            if (config.webhook_port) {
+                document.getElementById('setup-webhook-port').value = config.webhook_port;
+            }
+            if (config.client_id) {
+                document.getElementById('setup-client-id').value = config.client_id;
+            }
+            if (config.client_secret) {
+                document.getElementById('setup-client-secret').value = config.client_secret;
+            }
+
+            // Pre-fill State 2 redirect URL
+            if (config.server_url) {
+                document.getElementById('oauth-redirect-url').value = config.server_url.replace(/\/$/, '') + '/oauth/callback';
+            }
+
+            // Hide all states
+            document.getElementById('state-webhook-setup').style.display = 'none';
+            document.getElementById('state-oauth-wizard').style.display = 'none';
+            document.getElementById('state-configured').style.display = 'none';
+
+            // Show appropriate state
+            if (!initialSetupDone) {
+                // State 1: Initial setup - show server URL + OAuth credentials form
+                document.getElementById('state-webhook-setup').style.display = 'block';
+                homebridge.hideSchemaForm();
+            } else if (!isAuthorized) {
+                // State 2: Need authorization - show auth button
+                document.getElementById('state-oauth-wizard').style.display = 'block';
+                homebridge.hideSchemaForm();
+            } else {
+                // State 3: Everything configured - show full config form
+                document.getElementById('state-configured').style.display = 'block';
+                homebridge.showSchemaForm();
+                // Re-attach button listeners after showing the state
+                if (typeof attachButtonListeners === 'function') {
+                    attachButtonListeners();
+                }
+            }
+        } catch (err) {
+            console.error('updateUi error:', err);
+        }
+    }
+
+    async function openSmartThingsLogin() {
+        try {
+            // Get the auth URL that the plugin already generated
+            const result = await homebridge.request('/getAuthUrl');
+            
+            if (result.error) {
+                homebridge.toast.error(result.error);
+                return;
+            }
+            
+            if (result.url) {
+                console.log('Opening auth URL:', result.url);
+                // Show the URL for debugging - user can copy if window.open fails
+                prompt('Auth URL (copy if needed):', result.url);
+                window.open(result.url, "_blank");
+                homebridge.toast.info('Complete login in the new window, then click "Check Authorization Status".');
+            } else {
+                homebridge.toast.error('No authorization URL found. Please restart Homebridge first.');
+            }
+        } catch (err) {
+            console.error('openSmartThingsLogin error:', err);
+            homebridge.toast.error('Failed to get authorization URL. Make sure Homebridge has restarted.');
+        }
+    }
+
+    function reauthorize() {
+        document.getElementById('state-configured').style.display = 'none';
+        document.getElementById('state-oauth-wizard').style.display = 'block';
+        homebridge.hideSchemaForm();
+    }
+
+    async function clearAllTokens() {
+        if (!confirm('Clear all tokens? You will need to re-authenticate.')) {
+            return;
+        }
+        try {
+            homebridge.showSpinner();
+            await homebridge.request('/clearAllTokens');
+            homebridge.hideSpinner();
+            homebridge.toast.success('Tokens cleared');
+            setTimeout(updateUi, 500);
+        } catch (err) {
+            homebridge.hideSpinner();
+            homebridge.toast.error('Failed to clear tokens');
+        }
+    }
+
+    // Initialize
+    updateUi();
+
+    // Sync State 1 form fields to plugin config when changed
+    document.getElementById('setup-server-url').addEventListener('change', async function() {
+        const pluginConfig = await homebridge.getPluginConfig();
+        pluginConfig[0].server_url = this.value;
+        pluginConfig[0].use_direct_webhook = true;
+        await homebridge.updatePluginConfig(pluginConfig);
+    });
+
+    document.getElementById('setup-webhook-port').addEventListener('change', async function() {
+        const pluginConfig = await homebridge.getPluginConfig();
+        pluginConfig[0].webhook_port = parseInt(this.value, 10) || 3000;
+        await homebridge.updatePluginConfig(pluginConfig);
+    });
+
+    document.getElementById('setup-client-id').addEventListener('change', async function() {
+        const pluginConfig = await homebridge.getPluginConfig();
+        pluginConfig[0].client_id = this.value;
+        await homebridge.updatePluginConfig(pluginConfig);
+    });
+
+    document.getElementById('setup-client-secret').addEventListener('change', async function() {
+        const pluginConfig = await homebridge.getPluginConfig();
+        pluginConfig[0].client_secret = this.value;
+        await homebridge.updatePluginConfig(pluginConfig);
+    });
+
+    window.homebridge.addEventListener('configChanged', () => {
+        updateUi();
+    });
+
+    // Button event listeners
+    function attachButtonListeners() {
+        const btnReauth = document.getElementById('btn-reauthorize');
+        const btnClear = document.getElementById('btn-clear-tokens');
+        
+        if (btnReauth) {
+            btnReauth.onclick = function() {
+                document.getElementById('state-configured').style.display = 'none';
+                document.getElementById('state-oauth-wizard').style.display = 'block';
+                homebridge.hideSchemaForm();
+            };
+        }
+        
+        if (btnClear) {
+            btnClear.onclick = function() {
+                homebridge.showSpinner();
+                homebridge.request('/clearAllTokens').then(function(result) {
+                    homebridge.hideSpinner();
+                    homebridge.toast.success(result.message || 'Tokens cleared');
+                    setTimeout(updateUi, 500);
+                }).catch(function(err) {
+                    homebridge.hideSpinner();
+                    homebridge.toast.error('Failed: ' + (err.message || err));
+                });
+            };
+        }
+    }
+    
+    // Attach listeners now and also after updateUi
+    attachButtonListeners();
+</script>

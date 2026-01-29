@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ngrok-tunnel
+    restart: unless-stopped
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    command: http --url=${NGROK_DOMAIN} homebridge:3000
+    ports:
+      - "4040:4040" # ngrok web interface
+    depends_on:
+      - homebridge
+
+  homebridge:
+    image: homebridge/homebridge:latest
+    container_name: homebridge-smartthings-dev
+    restart: unless-stopped
+    environment:
+      - PGID=1000
+      - PUID=1000
+      - HOMEBRIDGE_CONFIG_UI=1
+      - HOMEBRIDGE_CONFIG_UI_PORT=8581
+      - TZ=UTC
+    ports:
+      - "8581:8581" # Homebridge UI
+      - "3000:3000" # Webhook server
+      - "51826:51826" # HomeKit
+    volumes:
+      # Homebridge config and data
+      - ./homebridge-data:/homebridge
+      # Mount plugin source as read-only in a staging location
+      - ./:/plugin-src:ro
+      # Custom startup script
+      - ./docker-startup.sh:/homebridge/startup.sh:ro

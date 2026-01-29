@@ -5,125 +5,112 @@
   "customUi": true,
   "schema": {
     "type": "object",
+    "required": [
+      "name",
+      "BaseURL",
+      "client_id",
+      "client_secret",
+      "GarageDoorMaxPoll"
+    ],
     "properties": {
       "name": {
         "title": "Name",
         "type": "string",
-        "required": true,
         "default": "Smartthings Plug (IK)"
       },
       "BaseURL": {
         "title": "Base URL",
         "type": "string",
-        "required": true,
         "default": "https://api.smartthings.com/v1/"
       },
       "client_id": {
         "title": "Client ID",
         "type": "string",
-        "required": true,
         "description": "OAuth2 Client ID from SmartThings. Obtained using the SmartThings CLI 'apps:create' command. See [Setup Instructions](https://github.com/aziz66/homebridge-smartthings?tab=readme-ov-file#getting-started) for details."
       },
       "client_secret": {
         "title": "Client Secret",
         "type": "string",
-        "required": true,
         "format": "password",
         "description": "OAuth2 Client Secret from SmartThings. Obtained using the SmartThings CLI 'apps:create' command. Save this value securely! See [Setup Instructions](https://github.com/aziz66/homebridge-smartthings?tab=readme-ov-file#getting-started) for details."
       },
       "server_url": {
         "title": "Server URL (Optional)",
         "type": "string",
-        "required": false,
         "description": "Your public webhook URL (e.g., ngrok URL). Used for SmartThings to send events. The webhook server runs on port 3000 by default."
       },
       "use_direct_webhook": {
         "title": "Use Direct SmartThings Webhook",
         "type": "boolean",
-        "required": false,
         "default": true,
         "description": "Enabled by default. Receives events directly from SmartThings via webhook. Requires creating a SmartApp in SmartThings Developer Workspace. Set to false to use legacy relay service instead."
       },
       "webhook_port": {
         "title": "Webhook Port",
         "type": "integer",
-        "required": false,
         "default": 3000,
         "description": "Port for webhook server (only used if Server URL is configured)"
       },
       "smartapp_id": {
         "title": "SmartApp ID",
         "type": "string",
-        "required": false,
         "description": "Your SmartApp ID from SmartThings. Used to validate incoming webhook requests. Get this from 'smartthings apps' CLI command."
       },
       "GarageDoorMaxPoll": {
         "title": "Garage Door Max Poll",
         "type": "integer",
-        "required": true,
         "default": 40
       },
       "PollLocksSeconds": {
         "title": "Poll Locks (zero = don't poll)",
         "type": "integer",
-        "required": false,
         "default": 10
       },
       "PollDoorsSeconds": {
         "title": "Poll Garage Doors (zero = don't poll)",
         "type": "integer",
-        "required": false,
         "default": 10
       },
       "PollSensorsSeconds": {
         "title": "Poll Sensors (zero = don't poll)",
         "type": "integer",
-        "required": false,
         "default": 5
       },
       "PollSwitchesAndLightsSeconds": {
         "title": "Poll Switches and Lights (zero = don't poll)",
         "type": "integer",
-        "required": false,
         "default": 10
       },
       "PollTelevisionsSeconds": {
         "title": "Poll Television devices (zero = don't poll)",
         "type": "integer",
-        "required": false,
         "default": 15,
         "description": "How often to poll TV devices for status updates. TVs typically respond slower than other devices, so a higher interval is recommended."
       },
       "registerVolumeSlider": {
         "title": "Register Volume Slider for TVs",
         "type": "boolean",
-        "required": false,
         "default": true,
         "description": "Creates a separate volume slider accessory for TVs (exposed as a lightbulb) because HomeKit's native TV interface doesn't show volume controls directly. Enable this if you can't see volume controls in the Home app."
       },
-
       "PollWindowShadesSeconds": {
         "title": "Poll Window Shades (zero = don't poll)",
         "type": "integer",
-        "required": false,
         "default": 20
       },
       "ExposeHumiditySensorForAirConditioners": {
         "title": "Expose humidity Sensor for air Conditioners if available.",
         "type": "boolean",
-        "required": false,
         "default": false
       },
       "ExposeACDisplayLight": {
         "title": "Expose AC Display Light as a switch if available.",
         "type": "boolean",
-        "required": false,
         "default": true
       },
       "OptionalModeForAirConditioners": {
         "title": "Select what optional mode to use as additional switch in air conditioners.",
         "type": "string",
-        "required": false,
         "enum": [
           "None",
           "Sleep",
@@ -137,14 +124,12 @@
       "enableTelevisionService": {
         "title": "Enable Television Service for TV devices",
         "type": "boolean",
-        "required": false,
         "default": true,
         "description": "When enabled, Samsung TVs will be exposed as proper Television accessories with input source control, volume control, and picture modes. When disabled, TVs will continue to appear as simple switches."
       },
       "removeLegacySwitchForTV": {
         "title": "Remove Legacy Switch Service for TVs",
         "type": "boolean",
-        "required": false,
         "default": false,
         "description": "When enabled, removes the basic switch service for TV devices, leaving only the Television service. When disabled (default), both services are available for backward compatibility."
       },

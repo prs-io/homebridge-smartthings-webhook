@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.0] - SmartApp-Only Authentication (Breaking Change)
+
+### Breaking Changes
+
+- **Removed OAuth-In App Flow**: Authentication now uses SmartApp credentials only
+- **Removed Legacy Token Files**: `smartthings_tokens.json` is no longer used
+- **Plugin Name Corrected**: Fixed plugin identifier from `homebridge-smartthings-ik` to `@prs.io/homebridge-smartthings-webhook`
+
+### Added
+
+- **Crash Loop Detection**: CrashLoopManager detects repeated failures and prevents Homebridge crashes
+  - Monitors: `TOKEN_REFRESH_FAILURE`, `DEVICE_HEALTH_FAILURE`, `API_INIT_FAILURE`
+  - Logs failures to `crash_loop_log.json`
+  - Detects crash loops (5 failures in 15 minutes)
+- **Automatic New Device Subscription**: When a new device is added in SmartThings, it's automatically subscribed
+- **Batched Subscription Creation**: Device subscriptions created in parallel batches for faster startup
+- **Setup Instructions in UI**: Added step-by-step SmartApp creation guide with video tutorial link
+
+### Changed
+
+- **Simplified Authentication**: Single SmartApp-based auth flow (no more dual OAuth systems)
+- **Token Refresh**: Uses SmartApp's own `client_id`/`client_secret` for refresh
+- **Token File Renamed**: `smartapp_credentials.json` → `smartthings_smartapp_token.json`
+- **Async File I/O**: Credentials saved asynchronously to avoid blocking event loop
+- **Improved Error Handling**: Better error messages for token refresh failures
+
+### Removed
+
+- **`src/auth/auth.ts`**: OAuth-In App flow removed
+- **`src/auth/tokenManager.ts`**: Legacy token management removed
+- **OAuth Callback Endpoint**: `/oauth/callback` endpoint removed from webhook server
+- **Unused Code**: Removed dead `createCapabilitySubscription` method
+
+### Technical Details
+
+- Credentials stored in `smartthings_smartapp_token.json` (from SmartApp INSTALL event)
+- Token refresh every 12 hours using SmartApp client credentials
+- Subscription batching: 5 devices per batch with 100ms delay between batches
+
+---
+
 ## [2.0.1] - Security & Validation
 
 ### Added

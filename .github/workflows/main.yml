@@ -1,0 +1,61 @@
+name: CI & Release
+
+on:
+  # a. Validate any Pull Request
+  pull_request:
+    branches: [main]
+
+  # b. Manually trigger a release
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Version bump type (patch, minor, major)"
+        required: true
+        default: "patch"
+
+permissions:
+  contents: write # Allows the workflow to push tags and commits
+  pull-requests: write # Allows the workflow to interact with PRs
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run lint --if-present
+      - run: npm test --if-present
+      - run: npm run build --if-present
+
+  publish-npm:
+    needs: build-and-test
+    # Only run this job if manually triggered on the main branch
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - run: npm ci
+
+      # Configure git for versioning
+      - run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      # Bump version, commit, and tag
+      - run: npm version ${{ github.event.inputs.release_type }}
+
+      # Publish to NPM using a secret token
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Push the version commit and tag back to GitHub
+      - run: git push --follow-tags

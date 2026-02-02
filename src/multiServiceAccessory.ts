@@ -167,7 +167,7 @@ export class MultiServiceAccessory {
   protected statusQueryInProgress = false;
   protected lastStatusResult = true;
 
-  // Add a field for CrashLoopManager
+  // CrashLoopManager for detecting repeated failures
   private crashLoopManager: CrashLoopManager;
 
   get id() {
@@ -220,8 +220,7 @@ export class MultiServiceAccessory {
     } catch (error) {
       this.log.error(`Failed to check device health for ${this.name}:`, error);
       this.online = false;
-      // Record this specific failure type for crash loop detection
-      // This assumes checkDeviceHealth is critical and its failure might lead to a crash loop
+      // Record this failure for crash loop detection
       await this.crashLoopManager.recordPotentialCrash(CrashErrorType.DEVICE_HEALTH_FAILURE);
       throw error; // Re-throw to be caught by the platform initialization or calling function
     }

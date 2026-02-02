@@ -1,21 +1,88 @@
 <div class="container">
-    <!-- State 1: Initial Setup - Server URL + OAuth Credentials -->
-    <div id="state-webhook-setup" style="display:none">
+    <!-- State 1: Initial Setup - Server URL + SmartApp Credentials -->
+    <div id="state-setup" style="display:none">
         <div class="card">
             <div class="card-header">
                 <h5>SmartThings Webhook Setup</h5>
             </div>
             <div class="card-body">
-                <p>Configure your webhook and SmartThings OAuth credentials.</p>
+                <p>Configure your webhook server and SmartApp credentials.</p>
                 
-                <form id="webhookSetupForm">
+                <form id="setupForm">
                     <h6 class="mt-3">Webhook Settings</h6>
+                    
+                    <!-- Collapsible Webhook Instructions -->
+                    <div class="card mb-3">
+                        <div class="card-header" style="cursor: pointer; background-color: #f8f9fa;" onclick="toggleWebhookInstructions()">
+                            <strong>📖 How to Get a Public HTTPS URL</strong>
+                            <span id="webhook-instructions-toggle" style="float: right;">▼</span>
+                        </div>
+                        <div id="webhook-instructions" style="display: none;">
+                            <div class="card-body">
+                                <p>SmartThings requires a public HTTPS URL to send webhook events. Choose one of these options:</p>
+                                
+                                <!-- Option 1: ngrok -->
+                                <div class="card mb-3">
+                                    <div class="card-header bg-light">
+                                        <strong>Option 1: ngrok (Easiest - Free)</strong>
+                                    </div>
+                                    <div class="card-body">
+                                        <ol class="mb-0">
+                                            <li>Sign up at <a href="https://ngrok.com" target="_blank">ngrok.com</a> (free account)</li>
+                                            <li>Download and install ngrok</li>
+                                            <li>Run: <code>ngrok http 3000</code></li>
+                                            <li>Copy the <code>https://xxxxx.ngrok-free.app</code> URL</li>
+                                        </ol>
+                                        <div class="alert alert-warning mt-2 mb-0">
+                                            <small><strong>Note:</strong> Free ngrok URLs change on restart. Consider a paid plan for a static URL, or use a custom domain.</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Option 2: Cloudflare Tunnel -->
+                                <div class="card mb-3">
+                                    <div class="card-header bg-light">
+                                        <strong>Option 2: Cloudflare Tunnel (Free - Permanent URL)</strong>
+                                    </div>
+                                    <div class="card-body">
+                                        <ol class="mb-0">
+                                            <li>Sign up at <a href="https://dash.cloudflare.com" target="_blank">Cloudflare</a> and add your domain</li>
+                                            <li>Install <code>cloudflared</code>: <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/tunnel-guide/" target="_blank">Guide</a></li>
+                                            <li>Create tunnel: <code>cloudflared tunnel create homebridge</code></li>
+                                            <li>Route traffic: <code>cloudflared tunnel route dns homebridge webhook.yourdomain.com</code></li>
+                                            <li>Run: <code>cloudflared tunnel run --url http://localhost:3000 homebridge</code></li>
+                                        </ol>
+                                    </div>
+                                </div>
+                                
+                                <!-- Option 3: Let's Encrypt + Port Forward -->
+                                <div class="card mb-3">
+                                    <div class="card-header bg-light">
+                                        <strong>Option 3: Let's Encrypt SSL + Port Forwarding</strong>
+                                    </div>
+                                    <div class="card-body">
+                                        <ol class="mb-0">
+                                            <li>Get a domain name (or use a free DDNS like <a href="https://www.duckdns.org" target="_blank">DuckDNS</a>)</li>
+                                            <li>Forward port 443 on your router to your Homebridge server</li>
+                                            <li>Install certbot: <code>sudo apt install certbot</code></li>
+                                            <li>Get certificate: <code>sudo certbot certonly --standalone -d yourdomain.com</code></li>
+                                            <li>Use a reverse proxy (nginx/caddy) to terminate SSL and forward to port 3000</li>
+                                        </ol>
+                                        <div class="alert alert-info mt-2 mb-0">
+                                            <small><strong>Tip:</strong> Caddy automatically handles Let's Encrypt: <code>caddy reverse-proxy --from yourdomain.com --to localhost:3000</code></small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="form-group">
                         <label for="setup-server-url" class="font-weight-bold">Server URL</label>
                         <input type="text" class="form-control" id="setup-server-url"
                             placeholder="e.g., https://your-domain.ngrok-free.dev">
                         <small class="form-text text-muted">
-                            Your public webhook URL. Use ngrok or similar to expose the webhook server (port 3000) to the internet.
+                            Your public webhook URL (must be HTTPS).
                         </small>
                     </div>
                     
@@ -27,78 +94,135 @@
                         </small>
                     </div>
 
+                    <hr>
+                    <h6>SmartApp Credentials</h6>
+                    
+                    <!-- Collapsible Instructions -->
+                    <div class="card mb-3">
+                        <div class="card-header" style="cursor: pointer; background-color: #f8f9fa;" onclick="toggleInstructions()">
+                            <strong>📖 How to Create a SmartApp</strong>
+                            <span id="instructions-toggle" style="float: right;">▼</span>
+                        </div>
+                        <div id="smartapp-instructions" style="display: none;">
+                            <div class="card-body">
+                                <!-- Video Tutorial Button -->
+                                <div class="mb-3">
+                                    <a href="https://www.youtube.com/watch?v=UbbEw9iwRAU&t=247s" target="_blank" class="btn btn-danger btn-block">
+                                        🎥 Watch Video Tutorial (4:05 - 6:07) ↗
+                                    </a>
+                                </div>
+                                
+                                <ol>
+                                    <li class="mb-2">
+                                        Visit the <a href="https://developer.smartthings.com/workspace/" target="_blank">SmartThings Developer Workspace</a>
+                                    </li>
+                                    <li class="mb-2">
+                                        Create a new project:
+                                        <ul>
+                                            <li>Click <strong>+ New Project</strong></li>
+                                            <li>Select <strong>Automation</strong> for the SmartApp</li>
+                                            <li>Give it a name (e.g., "Homebridge SmartThings")</li>
+                                            <li>Click <strong>CREATE PROJECT</strong></li>
+                                        </ul>
+                                    </li>
+                                    <li class="mb-2">
+                                        Register the App:
+                                        <ul>
+                                            <li>From project Overview, click <strong>REGISTER APP</strong></li>
+                                            <li>Select <strong>Webhook Endpoint</strong> as hosting type</li>
+                                            <li>Enter your <strong>Target URL</strong> (your Server URL + <code>/smartapp</code>)</li>
+                                            <li>Ensure URL is <strong>HTTPS</strong></li>
+                                        </ul>
+                                    </li>
+                                    <li class="mb-2">
+                                        Configure App Details:
+                                        <ul>
+                                            <li>Add a display name and description</li>
+                                            <li>Select OAuth2 scopes: <code>r:devices:*</code>, <code>x:devices:*</code>, <code>r:locations:*</code></li>
+                                            <li>Select <strong>Multiple Instances</strong> if needed</li>
+                                        </ul>
+                                    </li>
+                                    <li class="mb-2">
+                                        Click <strong>SAVE</strong> - You'll receive your <strong>Client ID</strong> and <strong>Client Secret</strong>
+                                    </li>
+                                    <li class="mb-2">
+                                        Copy the <strong>App ID</strong> from the app overview page
+                                    </li>
+                                </ol>
+                                
+                                <div class="alert alert-warning mb-0">
+                                    <strong>⚠️ Important:</strong> Save your Client ID and Client Secret immediately - the secret is only shown once!
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="form-group">
-                        <label for="setup-smartapp-id" class="font-weight-bold">SmartApp ID (Optional)</label>
+                        <label for="setup-smartapp-id" class="font-weight-bold">SmartApp ID</label>
                         <input type="text" class="form-control" id="setup-smartapp-id"
-                            placeholder="e.g., From  developer.smartthings.com/workspace">
+                            placeholder="From smartthings apps command">
                         <small class="form-text text-muted">
-                            Your SmartApp ID for webhook validation. Get this from <code>smartthings apps</code> CLI command.
-                            If set, only requests with matching appId will be accepted.
+                            Your SmartApp ID for webhook validation.
                         </small>
                     </div>
 
-                    <hr>
-                    <h6>SmartThings OAuth Credentials</h6>
-                    <p class="text-muted small">
-                        Create a SmartThings OAuth app using the 
-                        <a href="https://github.com/SmartThingsCommunity/smartthings-cli" target="_blank">SmartThings CLI</a>.
-                        Use scopes: <code>r:devices:* x:devices:* r:locations:*</code>
-                    </p>
-
                     <div class="form-group">
-                        <label for="setup-client-id" class="font-weight-bold">OAuth Client ID</label>
+                        <label for="setup-client-id" class="font-weight-bold">Client ID</label>
                         <input type="text" class="form-control" id="setup-client-id"
-                            placeholder="From SmartThings CLI">
+                            placeholder="From SmartApp creation">
                     </div>
 
                     <div class="form-group">
-                        <label for="setup-client-secret" class="font-weight-bold">OAuth Client Secret</label>
+                        <label for="setup-client-secret" class="font-weight-bold">Client Secret</label>
                         <input type="password" class="form-control" id="setup-client-secret"
-                            placeholder="From SmartThings CLI">
+                            placeholder="From SmartApp creation">
                     </div>
                 </form>
             </div>
         </div>
     </div>
 
-    <!-- State 2: Authorization Required - Show auth URL -->
-    <div id="state-oauth-wizard" style="display:none">
+    <!-- State 2: Waiting for SmartApp Installation -->
+    <div id="state-pending" style="display:none">
         <div class="alert alert-warning">
-            <strong>SmartThings Authentication Required</strong>
-            <p class="mb-0">Click the button below to authorize with SmartThings.</p>
+            <strong>Waiting for SmartApp Installation</strong>
+            <p class="mb-0">Install the SmartApp from your SmartThings mobile app to complete setup.</p>
         </div>
         
         <div class="card">
             <div class="card-body">
-                <h5>Authorize SmartThings</h5>
-                <p>Click the button to open the SmartThings authorization page. After authorizing, you'll be redirected back automatically.</p>
+                <h5>Install SmartApp</h5>
+                <p>Follow these steps to complete the connection:</p>
+                <ol>
+                    <li>Open the <strong>SmartThings</strong> mobile app</li>
+                    <li>Go to <strong>Menu → SmartApps → Add (+)</strong></li>
+                    <li>Find and install your <strong>Homebridge SmartThings</strong> SmartApp</li>
+                    <li>Select the devices you want to control via HomeKit</li>
+                    <li>Complete the installation</li>
+                </ol>
                 
-                <div class="form-group">
-                    <label class="font-weight-bold">OAuth Redirect URL (for reference)</label>
-                    <input type="text" class="form-control" id="oauth-redirect-url" readonly>
+                <div id="webhook-status" class="mb-3">
+                    <span class="badge badge-secondary">Checking webhook status...</span>
                 </div>
-
-                <button class="btn btn-primary btn-lg" onclick="openSmartThingsLogin()">
-                    Authorize with SmartThings
-                </button>
                 
-                <hr>
-                <p class="text-muted small mb-0">
-                    After successful authorization from SmartThings, come back and click Save.
-                </p>
+                <button class="btn btn-primary" onclick="checkStatus()">
+                    Check Installation Status
+                </button>
             </div>
         </div>
     </div>
 
-    <!-- State 3: OAuth configured - Show full config form -->
+    <!-- State 3: SmartApp Installed - Show full config form -->
     <div id="state-configured" style="display:none">
         <div class="alert alert-success">
             <strong>✅ SmartThings Connected</strong>
-            <p class="mb-0">Your SmartThings connection is configured. Modify settings below.</p>
+            <p class="mb-0">Your SmartApp is installed and connected. Modify settings below.</p>
         </div>
         <div class="mb-3">
-            <button class="btn btn-outline-primary btn-sm" id="btn-reauthorize">Re-authorize SmartThings</button>
-            <button class="btn btn-outline-danger btn-sm ml-2" id="btn-clear-tokens">Clear All Tokens</button>
+            <span id="installed-app-info" class="text-muted small"></span>
+        </div>
+        <div class="mb-3">
+            <button class="btn btn-outline-danger btn-sm" id="btn-clear-tokens">Clear All Tokens</button>
             <p class="text-muted small mt-2 mb-0">
                 <strong>Note:</strong> After clearing tokens, you should also remove the SmartApp from your SmartThings mobile app:
                 <br>SmartThings App → Menu → SmartApps → Find "Homebridge SmartThings" → Delete
@@ -116,26 +240,29 @@
                 pluginConfig[0] = {
                     platform: "HomeBridgeSmartThings",
                     name: "SmartThings",
-                    BaseURL: "https://api.smartthings.com/v1/"
+                    BaseURL: "https://api.smartthings.com/v1/",
+                    use_direct_webhook: true
                 };
                 await homebridge.updatePluginConfig(pluginConfig);
             }
 
             const config = pluginConfig[0];
 
-            // Check if initial setup is done (server_url + client credentials)
-            const initialSetupDone = !!(config.server_url && config.client_id && config.client_secret);
+            // Check if initial setup is done
+            const setupDone = !!(config.server_url && config.client_id && config.client_secret);
 
-            // Check if authorized (check file via server endpoint)
-            let isAuthorized = false;
+            // Check SmartApp installation status
+            let smartAppInstalled = false;
+            let installedAppId = null;
             try {
-                const authStatus = await homebridge.request('/checkAuthorized');
-                isAuthorized = authStatus.authorized;
+                const status = await homebridge.request('/checkSmartAppStatus');
+                smartAppInstalled = status.installed;
+                installedAppId = status.installedAppId;
             } catch (err) {
-                isAuthorized = false;
+                smartAppInstalled = false;
             }
 
-            // Pre-fill State 1 fields
+            // Pre-fill setup fields
             if (config.server_url) {
                 document.getElementById('setup-server-url').value = config.server_url;
             }
@@ -152,90 +279,111 @@
                 document.getElementById('setup-client-secret').value = config.client_secret;
             }
 
-            // Pre-fill State 2 redirect URL
-            if (config.server_url) {
-                document.getElementById('oauth-redirect-url').value = config.server_url.replace(/\/$/, '') + '/oauth/callback';
-            }
-
             // Hide all states
-            document.getElementById('state-webhook-setup').style.display = 'none';
-            document.getElementById('state-oauth-wizard').style.display = 'none';
+            document.getElementById('state-setup').style.display = 'none';
+            document.getElementById('state-pending').style.display = 'none';
             document.getElementById('state-configured').style.display = 'none';
 
             // Show appropriate state
-            if (!initialSetupDone) {
-                // State 1: Initial setup - show server URL + OAuth credentials form
-                document.getElementById('state-webhook-setup').style.display = 'block';
+            if (!setupDone) {
+                document.getElementById('state-setup').style.display = 'block';
                 homebridge.hideSchemaForm();
-            } else if (!isAuthorized) {
-                // State 2: Need authorization - show auth button
-                document.getElementById('state-oauth-wizard').style.display = 'block';
+            } else if (!smartAppInstalled) {
+                document.getElementById('state-pending').style.display = 'block';
                 homebridge.hideSchemaForm();
+                checkWebhookStatus();
             } else {
-                // State 3: Everything configured - show full config form
                 document.getElementById('state-configured').style.display = 'block';
-                homebridge.showSchemaForm();
-                // Re-attach button listeners after showing the state
-                if (typeof attachButtonListeners === 'function') {
-                    attachButtonListeners();
+                if (installedAppId) {
+                    document.getElementById('installed-app-info').textContent = 'Installed App ID: ' + installedAppId;
                 }
+                homebridge.showSchemaForm();
+                attachButtonListeners();
             }
         } catch (err) {
             console.error('updateUi error:', err);
         }
     }
 
-    async function openSmartThingsLogin() {
+    function toggleInstructions() {
+        const instructions = document.getElementById('smartapp-instructions');
+        const toggle = document.getElementById('instructions-toggle');
+        if (instructions.style.display === 'none') {
+            instructions.style.display = 'block';
+            toggle.textContent = '▲';
+        } else {
+            instructions.style.display = 'none';
+            toggle.textContent = '▼';
+        }
+    }
+
+    function toggleWebhookInstructions() {
+        const instructions = document.getElementById('webhook-instructions');
+        const toggle = document.getElementById('webhook-instructions-toggle');
+        if (instructions.style.display === 'none') {
+            instructions.style.display = 'block';
+            toggle.textContent = '▲';
+        } else {
+            instructions.style.display = 'none';
+            toggle.textContent = '▼';
+        }
+    }
+
+    async function checkWebhookStatus() {
         try {
-            // Get the auth URL that the plugin already generated
-            const result = await homebridge.request('/getAuthUrl');
-            
-            if (result.error) {
-                homebridge.toast.error(result.error);
-                return;
-            }
-            
-            if (result.url) {
-                console.log('Opening auth URL:', result.url);
-                // Show the URL for debugging - user can copy if window.open fails
-                prompt('Auth URL (copy if needed):', result.url);
-                window.open(result.url, "_blank");
-                homebridge.toast.info('Complete login in the new window, then click "Check Authorization Status".');
+            const status = await homebridge.request('/checkWebhookStatus');
+            const el = document.getElementById('webhook-status');
+            if (status.running) {
+                el.innerHTML = '<span class="badge badge-success">Webhook server running on port ' + status.port + '</span>';
             } else {
-                homebridge.toast.error('No authorization URL found. Please restart Homebridge first.');
+                el.innerHTML = '<span class="badge badge-danger">Webhook server not running</span>';
             }
         } catch (err) {
-            console.error('openSmartThingsLogin error:', err);
-            homebridge.toast.error('Failed to get authorization URL. Make sure Homebridge has restarted.');
+            console.error('checkWebhookStatus error:', err);
         }
     }
 
-    function reauthorize() {
-        document.getElementById('state-configured').style.display = 'none';
-        document.getElementById('state-oauth-wizard').style.display = 'block';
-        homebridge.hideSchemaForm();
-    }
-
-    async function clearAllTokens() {
-        if (!confirm('Clear all tokens? You will need to re-authenticate.')) {
-            return;
-        }
+    async function checkStatus() {
+        homebridge.showSpinner();
         try {
-            homebridge.showSpinner();
-            await homebridge.request('/clearAllTokens');
+            await checkWebhookStatus();
+            const status = await homebridge.request('/checkSmartAppStatus');
             homebridge.hideSpinner();
-            homebridge.toast.success('Tokens cleared');
-            setTimeout(updateUi, 500);
+            
+            if (status.installed) {
+                homebridge.toast.success('SmartApp is installed!');
+                updateUi();
+            } else {
+                homebridge.toast.warning('SmartApp not yet installed. Please install from SmartThings app.');
+            }
         } catch (err) {
             homebridge.hideSpinner();
-            homebridge.toast.error('Failed to clear tokens');
+            homebridge.toast.error('Failed to check status');
         }
     }
 
-    // Initialize
-    updateUi();
+    function attachButtonListeners() {
+        const btnClear = document.getElementById('btn-clear-tokens');
+        if (btnClear) {
+            btnClear.onclick = async function() {
+                if (!confirm('Clear all tokens? You will need to reinstall the SmartApp.')) {
+                    return;
+                }
+                homebridge.showSpinner();
+                try {
+                    const result = await homebridge.request('/clearAllTokens');
+                    homebridge.hideSpinner();
+                    homebridge.toast.success(result.message || 'Tokens cleared');
+                    setTimeout(updateUi, 500);
+                } catch (err) {
+                    homebridge.hideSpinner();
+                    homebridge.toast.error('Failed: ' + (err.message || err));
+                }
+            };
+        }
+    }
 
-    // Sync State 1 form fields to plugin config when changed
+    // Sync setup form fields to plugin config
     document.getElementById('setup-server-url').addEventListener('change', async function() {
         const pluginConfig = await homebridge.getPluginConfig();
         pluginConfig[0].server_url = this.value;
@@ -271,34 +419,6 @@
         updateUi();
     });
 
-    // Button event listeners
-    function attachButtonListeners() {
-        const btnReauth = document.getElementById('btn-reauthorize');
-        const btnClear = document.getElementById('btn-clear-tokens');
-        
-        if (btnReauth) {
-            btnReauth.onclick = function() {
-                document.getElementById('state-configured').style.display = 'none';
-                document.getElementById('state-oauth-wizard').style.display = 'block';
-                homebridge.hideSchemaForm();
-            };
-        }
-        
-        if (btnClear) {
-            btnClear.onclick = function() {
-                homebridge.showSpinner();
-                homebridge.request('/clearAllTokens').then(function(result) {
-                    homebridge.hideSpinner();
-                    homebridge.toast.success(result.message || 'Tokens cleared');
-                    setTimeout(updateUi, 500);
-                }).catch(function(err) {
-                    homebridge.hideSpinner();
-                    homebridge.toast.error('Failed: ' + (err.message || err));
-                });
-            };
-        }
-    }
-    
-    // Attach listeners now and also after updateUi
-    attachButtonListeners();
+    // Initialize
+    updateUi();
 </script>

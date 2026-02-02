@@ -1,8 +1,8 @@
 import { Logger } from 'homebridge';
 import axios from 'axios';
-import * as crypto from 'crypto';
 import { IKHomeBridgeHomebridgePlatform } from '../platform';
 import { ShortEvent } from './subscriptionHandler';
+import { CrashErrorType } from '../auth/CrashLoopManager';
 
 /**
  * SmartThings SmartApp Lifecycle types
@@ -134,18 +134,25 @@ export class SmartAppHandler {
   private authToken: string | null = null;
   private refreshToken: string | null = null;
   private locationId: string | null = null;
+  private tokenExpiresAt: number | null = null;
   private eventHandlers: ((event: ShortEvent) => void)[] = [];
   private deviceLifecycleHandlers: ((lifecycle: string, deviceId: string, deviceName?: string) => void)[] = [];
   private deviceIds: string[] = [];
   private credentialsPath: string;
+  private refreshTimer: NodeJS.Timeout | null = null;
+
+  // Token refresh configuration
+  private readonly TOKEN_LIFETIME_MS = 24 * 60 * 60 * 1000; // 24 hours (SmartThings default)
+  private readonly REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000; // Refresh every 12 hours
 
   constructor(
     private readonly platform: IKHomeBridgeHomebridgePlatform,
     private readonly log: Logger,
   ) {
     // Store credentials in Homebridge storage path
-    this.credentialsPath = path.join(platform.api.user.storagePath(), 'smartapp_credentials.json');
+    this.credentialsPath = path.join(platform.api.user.storagePath(), 'smartthings_smartapp_token.json');
     this.loadCredentials();
+    this.scheduleTokenRefresh();
   }
 
   /**
@@ -159,7 +166,13 @@ export class SmartAppHandler {
         this.authToken = data.authToken || null;
         this.refreshToken = data.refreshToken || null;
         this.locationId = data.locationId || null;
+        this.tokenExpiresAt = data.tokenExpiresAt || null;
         this.log.info(`SmartApp: Loaded saved credentials for installed app: ${this.installedAppId}`);
+
+        // Check if token needs immediate refresh
+        if (this.tokenExpiresAt && Date.now() > this.tokenExpiresAt - this.REFRESH_INTERVAL_MS) {
+          this.log.info('SmartApp: Token expired or expiring soon, will refresh on startup');
+        }
       }
     } catch (error) {
       this.log.debug(`SmartApp: No saved credentials found or error loading: ${error}`);
@@ -167,22 +180,22 @@ export class SmartAppHandler {
   }
 
   /**
-   * Save credentials to disk
+   * Save credentials to disk (async to avoid blocking event loop)
    */
   private saveCredentials(): void {
-    try {
-      const data = {
-        installedAppId: this.installedAppId,
-        authToken: this.authToken,
-        refreshToken: this.refreshToken,
-        locationId: this.locationId,
-        savedAt: new Date().toISOString(),
-      };
-      fs.writeFileSync(this.credentialsPath, JSON.stringify(data, null, 2));
-      this.log.info('SmartApp: Saved credentials to disk');
-    } catch (error) {
-      this.log.error(`SmartApp: Failed to save credentials: ${error}`);
-    }
+    const data = {
+      installedAppId: this.installedAppId,
+      authToken: this.authToken,
+      refreshToken: this.refreshToken,
+      locationId: this.locationId,
+      tokenExpiresAt: this.tokenExpiresAt,
+      savedAt: new Date().toISOString(),
+    };
+
+    // Use async write to avoid blocking
+    fs.promises.writeFile(this.credentialsPath, JSON.stringify(data, null, 2))
+      .then(() => this.log.info('SmartApp: Saved credentials to disk'))
+      .catch(error => this.log.error(`SmartApp: Failed to save credentials: ${error}`));
   }
 
   /**
@@ -194,9 +207,140 @@ export class SmartAppHandler {
         fs.unlinkSync(this.credentialsPath);
         this.log.info('SmartApp: Cleared saved credentials');
       }
+      // Clear the refresh timer
+      if (this.refreshTimer) {
+        clearInterval(this.refreshTimer);
+        this.refreshTimer = null;
+      }
     } catch (error) {
       this.log.error(`SmartApp: Failed to clear credentials: ${error}`);
     }
+  }
+
+  /**
+   * Schedule periodic token refresh every 12 hours
+   */
+  private scheduleTokenRefresh(): void {
+    // Clear any existing timer
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+    }
+
+    // Initial refresh check after 10 seconds (allow startup to complete)
+    setTimeout(async () => {
+      if (this.isInstalled() && this.refreshToken) {
+        await this.refreshAuthTokenIfNeeded();
+      }
+    }, 10000);
+
+    // Schedule periodic refresh every 12 hours
+    this.refreshTimer = setInterval(async () => {
+      if (this.isInstalled() && this.refreshToken) {
+        this.log.info('SmartApp: Scheduled token refresh (every 12 hours)');
+        await this.refreshAuthToken();
+      }
+    }, this.REFRESH_INTERVAL_MS);
+
+    this.log.debug('SmartApp: Token refresh scheduled every 12 hours');
+  }
+
+  /**
+   * Refresh auth token if it's expired or expiring soon
+   */
+  private async refreshAuthTokenIfNeeded(): Promise<boolean> {
+    if (!this.refreshToken) {
+      return false;
+    }
+
+    // If no expiry recorded or token is expired/expiring within 1 hour
+    const oneHourMs = 60 * 60 * 1000;
+    if (!this.tokenExpiresAt || Date.now() > (this.tokenExpiresAt - oneHourMs)) {
+      this.log.info('SmartApp: Token expired or expiring soon, refreshing...');
+      return await this.refreshAuthToken();
+    }
+
+    return true;
+  }
+
+  /**
+   * Refresh the SmartApp auth token using refresh token
+   */
+  private async refreshAuthToken(): Promise<boolean> {
+    if (!this.refreshToken) {
+      this.log.error('SmartApp: Cannot refresh - no refresh token available');
+      return false;
+    }
+
+    try {
+      const clientId = this.platform.config.client_id;
+      const clientSecret = this.platform.config.client_secret;
+
+      if (!clientId || !clientSecret) {
+        this.log.error('SmartApp: Cannot refresh - missing client_id or client_secret in config');
+        return false;
+      }
+
+      const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+
+      const params = new URLSearchParams();
+      params.append('grant_type', 'refresh_token');
+      params.append('refresh_token', this.refreshToken);
+
+      this.log.debug('SmartApp: Refreshing auth token...');
+
+      const response = await axios.post('https://api.smartthings.com/oauth/token', params, {
+        headers: {
+          'Authorization': `Basic ${basicAuth}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      });
+
+      // Update tokens
+      this.authToken = response.data.access_token;
+      this.refreshToken = response.data.refresh_token; // Save rotated refresh token
+      this.tokenExpiresAt = Date.now() + (response.data.expires_in * 1000 || this.TOKEN_LIFETIME_MS);
+
+      // Persist to disk
+      this.saveCredentials();
+
+      this.log.info('SmartApp: Successfully refreshed auth token');
+      this.log.debug(`SmartApp: Token expires at ${new Date(this.tokenExpiresAt).toISOString()}`);
+      return true;
+
+    } catch (error: any) {
+      this.log.error(`SmartApp: Failed to refresh token: ${error.message}`);
+
+      // Record this failure for crash loop detection
+      const crashLoopManager = this.platform.getCrashLoopManagerInstance();
+      await crashLoopManager.recordPotentialCrash(CrashErrorType.TOKEN_REFRESH_FAILURE);
+
+      // Check if refresh token is invalid/expired
+      if (error.response?.status === 400 || error.response?.status === 401) {
+        this.log.error('SmartApp: Refresh token is invalid or expired');
+        this.log.error('SmartApp: Please reinstall the SmartApp in the SmartThings mobile app');
+        this.log.error('SmartApp: Go to SmartThings app > Menu > SmartApps > Remove and re-add the app');
+
+        // Clear invalid credentials
+        this.clearCredentials();
+        this.installedAppId = null;
+        this.authToken = null;
+        this.refreshToken = null;
+        this.tokenExpiresAt = null;
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Ensure we have a valid token before making API calls
+   * Refreshes if needed, returns false if unable to get valid token
+   */
+  private async ensureValidToken(): Promise<boolean> {
+    if (!this.authToken || !this.refreshToken) {
+      return false;
+    }
+
+    return await this.refreshAuthTokenIfNeeded();
   }
 
   /**
@@ -247,6 +391,42 @@ export class SmartAppHandler {
    */
   public addDeviceLifecycleHandler(handler: (lifecycle: string, deviceId: string, deviceName?: string) => void): void {
     this.deviceLifecycleHandlers.push(handler);
+  }
+
+  /**
+   * Get the current auth token for API calls
+   * Ensures token is valid/refreshed before returning
+   */
+  public async getAuthToken(): Promise<string | null> {
+    if (!this.authToken) {
+      return null;
+    }
+
+    // Ensure token is valid, refresh if needed
+    await this.ensureValidToken();
+    return this.authToken;
+  }
+
+  /**
+   * Get the current auth token synchronously (may be expired)
+   * Use getAuthToken() for API calls to ensure validity
+   */
+  public getAuthTokenSync(): string | null {
+    return this.authToken;
+  }
+
+  /**
+   * Check if SmartApp credentials are available and valid
+   */
+  public hasValidCredentials(): boolean {
+    return this.isInstalled() && this.authToken !== null;
+  }
+
+  /**
+   * Get the location ID
+   */
+  public getLocationId(): string | null {
+    return this.locationId;
   }
 
   /**
@@ -403,6 +583,7 @@ export class SmartAppHandler {
     this.authToken = installData.authToken;
     this.refreshToken = installData.refreshToken;
     this.locationId = installData.installedApp.locationId;
+    this.tokenExpiresAt = Date.now() + this.TOKEN_LIFETIME_MS; // Assume 24-hour expiry
 
     this.log.info(`SmartApp: Installed app ID: ${this.installedAppId}`);
     this.log.info(`SmartApp: Location ID: ${this.locationId}`);
@@ -410,11 +591,19 @@ export class SmartAppHandler {
     // Save credentials to disk for persistence across restarts
     this.saveCredentials();
 
+    // Start token refresh scheduler
+    this.scheduleTokenRefresh();
+
     // Create subscriptions for all devices
     await this.createDeviceSubscriptions();
 
     // Subscribe to device lifecycle events (CREATE, DELETE, UPDATE)
     await this.createDeviceLifecycleSubscription();
+
+    this.log.info('=================================================');
+    this.log.info('SmartApp installation complete!');
+    this.log.info('Please RESTART Homebridge to discover your devices.');
+    this.log.info('=================================================');
 
     return {
       statusCode: 200,
@@ -439,6 +628,7 @@ export class SmartAppHandler {
     this.authToken = updateData.authToken;
     this.refreshToken = updateData.refreshToken;
     this.locationId = updateData.installedApp.locationId;
+    this.tokenExpiresAt = Date.now() + this.TOKEN_LIFETIME_MS; // Assume 24-hour expiry
 
     // Save updated credentials
     this.saveCredentials();
@@ -474,6 +664,7 @@ export class SmartAppHandler {
       this.authToken = eventData.authToken;
       this.installedAppId = eventData.installedApp.installedAppId;
       this.locationId = eventData.installedApp.locationId;
+      this.tokenExpiresAt = Date.now() + this.TOKEN_LIFETIME_MS; // Assume 24-hour expiry
 
       // If this is the first time we have credentials, sync pending subscriptions
       if (!hadCredentialsBefore && this.deviceIds.length > 0) {
@@ -542,6 +733,7 @@ export class SmartAppHandler {
   /**
    * Handle UNINSTALL lifecycle - app was uninstalled
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private handleUninstall(_request: SmartAppRequest): any {
     this.log.info('SmartApp: App uninstalled');
 
@@ -550,6 +742,7 @@ export class SmartAppHandler {
     this.authToken = null;
     this.refreshToken = null;
     this.locationId = null;
+    this.tokenExpiresAt = null;
 
     // Clear saved credentials from disk
     this.clearCredentials();
@@ -567,6 +760,12 @@ export class SmartAppHandler {
     const subscribedDeviceIds = new Set<string>();
 
     if (!this.installedAppId || !this.authToken) {
+      return subscribedDeviceIds;
+    }
+
+    // Ensure we have a valid token before making API call
+    if (!await this.ensureValidToken()) {
+      this.log.error('SmartApp: Cannot get subscriptions - token refresh failed');
       return subscribedDeviceIds;
     }
 
@@ -603,6 +802,12 @@ export class SmartAppHandler {
       return;
     }
 
+    // Ensure we have a valid token before making API calls
+    if (!await this.ensureValidToken()) {
+      this.log.error('SmartApp: Cannot sync subscriptions - token refresh failed');
+      return;
+    }
+
     if (this.deviceIds.length === 0) {
       this.log.warn('SmartApp: No device IDs registered for subscription');
       return;
@@ -623,21 +828,38 @@ export class SmartAppHandler {
       `SmartApp: Creating subscriptions for ${missingDeviceIds.length} new devices (${existingSubscriptions.size} already exist)`,
     );
 
+    // Process in batches of 5 for faster subscription creation
+    const BATCH_SIZE = 5;
     let successCount = 0;
-    for (const deviceId of missingDeviceIds) {
-      try {
-        await this.createDeviceSubscription(deviceId);
-        successCount++;
-      } catch (error) {
-        this.log.error(`SmartApp: Failed to create subscription for device ${deviceId}: ${error}`);
+    let failCount = 0;
+
+    for (let i = 0; i < missingDeviceIds.length; i += BATCH_SIZE) {
+      const batch = missingDeviceIds.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(deviceId => this.createDeviceSubscription(deviceId)),
+      );
+
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          successCount++;
+        } else {
+          failCount++;
+          this.log.error(`SmartApp: Failed to create subscription for device ${batch[index]}: ${result.reason}`);
+        }
+      });
+
+      // Small delay between batches to avoid rate limiting
+      if (i + BATCH_SIZE < missingDeviceIds.length) {
+        await this.delay(100);
       }
     }
-    this.log.info(`SmartApp: Created ${successCount}/${missingDeviceIds.length} new device subscriptions`);
+    this.log.info(`SmartApp: Created ${successCount}/${missingDeviceIds.length} new device subscriptions (${failCount} failed)`);
   }
 
   /**
    * Create device subscriptions for all registered devices
    * NOTE: Capability wildcard subscriptions do NOT send events - must use device subscriptions
+   * Uses batched parallel processing to reduce startup time
    */
   private async createDeviceSubscriptions(): Promise<void> {
     if (!this.installedAppId || !this.authToken) {
@@ -648,22 +870,44 @@ export class SmartAppHandler {
     if (this.deviceIds.length === 0) {
       this.log.warn('SmartApp: No device IDs registered for subscription yet');
       this.log.warn('SmartApp: Subscriptions will be created when devices are loaded');
-      // Don't create capability subscription - it doesn't actually send events!
       return;
     }
 
-    this.log.info(`SmartApp: Creating subscriptions for ${this.deviceIds.length} devices`);
+    this.log.info(`SmartApp: Creating subscriptions for ${this.deviceIds.length} devices (batched)`);
 
+    // Process in batches of 5 to avoid rate limiting while still being faster than sequential
+    const BATCH_SIZE = 5;
     let successCount = 0;
-    for (const deviceId of this.deviceIds) {
-      try {
-        await this.createDeviceSubscription(deviceId);
-        successCount++;
-      } catch (error) {
-        this.log.error(`SmartApp: Failed to create subscription for device ${deviceId}: ${error}`);
+    let failCount = 0;
+
+    for (let i = 0; i < this.deviceIds.length; i += BATCH_SIZE) {
+      const batch = this.deviceIds.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(deviceId => this.createDeviceSubscription(deviceId)),
+      );
+
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          successCount++;
+        } else {
+          failCount++;
+          this.log.error(`SmartApp: Failed to create subscription for device ${batch[index]}: ${result.reason}`);
+        }
+      });
+
+      // Small delay between batches to avoid rate limiting
+      if (i + BATCH_SIZE < this.deviceIds.length) {
+        await this.delay(100);
       }
     }
-    this.log.info(`SmartApp: Successfully created ${successCount}/${this.deviceIds.length} device subscriptions`);
+    this.log.info(`SmartApp: Created ${successCount}/${this.deviceIds.length} device subscriptions (${failCount} failed)`);
+  }
+
+  /**
+   * Utility delay function for rate limiting
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**
@@ -717,6 +961,12 @@ export class SmartAppHandler {
       return;
     }
 
+    // Ensure we have a valid token before making API call
+    if (!await this.ensureValidToken()) {
+      this.log.error('SmartApp: Cannot create device lifecycle subscription - token refresh failed');
+      return;
+    }
+
     const url = `https://api.smartthings.com/installedapps/${this.installedAppId}/subscriptions`;
 
     const subscriptionRequest = {
@@ -745,48 +995,6 @@ export class SmartAppHandler {
         if (error.response) {
           this.log.error(`SmartApp: Response: ${JSON.stringify(error.response.data)}`);
         }
-      }
-    }
-  }
-
-  /**
-   * Create capability-based subscription (subscribes to all devices with a capability)
-   */
-  private async createCapabilitySubscription(capability: string): Promise<void> {
-    if (!this.installedAppId || !this.authToken || !this.locationId) {
-      this.log.error('SmartApp: Cannot create capability subscription - missing credentials');
-      return;
-    }
-
-    const url = `https://api.smartthings.com/installedapps/${this.installedAppId}/subscriptions`;
-
-    const subscriptionRequest = {
-      sourceType: 'CAPABILITY',
-      capability: {
-        locationId: this.locationId,
-        capability: capability,
-        attribute: '*',
-        value: '*',
-        stateChangeOnly: true,
-        subscriptionName: `homebridge_capability_${capability}`,
-      },
-    };
-
-    try {
-      this.log.info(`SmartApp: Creating subscription with request: ${JSON.stringify(subscriptionRequest)}`);
-      const response = await axios.post(url, subscriptionRequest, {
-        headers: {
-          'Authorization': `Bearer ${this.authToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      this.log.info(`SmartApp: Created capability subscription for ${capability}`);
-      this.log.info(`SmartApp: Subscription response: ${JSON.stringify(response.data)}`);
-    } catch (error: any) {
-      this.log.error(`SmartApp: Failed to create capability subscription: ${error.message}`);
-      if (error.response) {
-        this.log.error(`SmartApp: Response status: ${error.response.status}`);
-        this.log.error(`SmartApp: Response data: ${JSON.stringify(error.response.data)}`);
       }
     }
   }

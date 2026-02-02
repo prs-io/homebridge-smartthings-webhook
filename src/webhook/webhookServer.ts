@@ -2,14 +2,12 @@ import { Logger } from 'homebridge';
 import * as http from 'http';
 import * as url from 'url';
 import { IKHomeBridgeHomebridgePlatform } from '../platform';
-import { SmartThingsAuth } from '../auth/auth';
 import { ShortEvent } from './subscriptionHandler';
-import { SmartAppHandler, SmartAppRequest, SmartAppLifecycle } from './smartAppHandler';
+import { SmartAppHandler, SmartAppRequest } from './smartAppHandler';
 
 export class WebhookServer {
   private server: http.Server | null = null;
   private eventHandlers: ((event: ShortEvent) => void)[] = [];
-  private authHandler: SmartThingsAuth | null = null;
   private smartAppHandler: SmartAppHandler | null = null;
   private isRunning = false;
   private useDirectWebhook = false;
@@ -41,15 +39,7 @@ export class WebhookServer {
     this.server = http.createServer((req, res) => {
       const parsedUrl = url.parse(req.url!, true);
 
-      if (parsedUrl.pathname === '/oauth/callback') {
-        if (this.authHandler) {
-          this.handleOAuthCallback(parsedUrl.query, res);
-        } else {
-          this.log.error('OAuth callback received but no auth handler registered');
-          res.writeHead(500, { 'Content-Type': 'text/html' });
-          res.end('<h1>Error: OAuth handler not initialized</h1>');
-        }
-      } else if (parsedUrl.pathname === '/smartapp' || (parsedUrl.pathname === '/' && this.useDirectWebhook && req.method === 'POST')) {
+      if (parsedUrl.pathname === '/smartapp' || (parsedUrl.pathname === '/' && this.useDirectWebhook && req.method === 'POST')) {
         // Handle SmartThings SmartApp webhook requests
         this.handleSmartAppRequest(req, res);
       } else if (parsedUrl.pathname === '/' && req.method === 'POST') {
@@ -59,6 +49,9 @@ export class WebhookServer {
         // Health check endpoint for UI status check
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ status: 'ok', directWebhook: this.useDirectWebhook }));
+      } else if (parsedUrl.pathname === '/status') {
+        // SmartApp installation status endpoint for UI
+        this.handleStatusRequest(res);
       } else {
         res.writeHead(404);
         res.end();
@@ -79,10 +72,6 @@ export class WebhookServer {
     });
   }
 
-  public setAuthHandler(auth: SmartThingsAuth): void {
-    this.authHandler = auth;
-  }
-
   /**
    * Get the SmartApp handler for registering device IDs
    */
@@ -90,17 +79,20 @@ export class WebhookServer {
     return this.smartAppHandler;
   }
 
-  private async handleOAuthCallback(query: any, res: http.ServerResponse): Promise<void> {
-    try {
-      if (!this.authHandler) {
-        throw new Error('No auth handler registered');
-      }
-      await this.authHandler.handleOAuthCallback(query, res);
-    } catch (error) {
-      this.log.error('OAuth callback error:', error);
-      res.writeHead(500, { 'Content-Type': 'text/html' });
-      res.end('<h1>Authentication failed</h1><p>Please try again.</p>');
-    }
+  /**
+   * Handle status request for UI to check SmartApp installation status
+   */
+  private handleStatusRequest(res: http.ServerResponse): void {
+    const handler = this.smartAppHandler;
+    const isInstalled = handler ? handler.isInstalled() : false;
+    const installedAppId = handler ? handler.getInstalledAppId() : null;
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      smartAppInstalled: isInstalled,
+      installedAppId: installedAppId,
+      directWebhook: this.useDirectWebhook,
+    }));
   }
 
   /**

@@ -6,9 +6,10 @@ import axios = require('axios');
 //import { BasePlatformAccessory } from './basePlatformAccessory';
 import { MultiServiceAccessory } from './multiServiceAccessory';
 import { SubscriptionHandler } from './webhook/subscriptionHandler';
-import { SmartThingsAuth } from './auth/auth';
 import { WebhookServer } from './webhook/webhookServer';
+import { SmartAppHandler } from './webhook/smartAppHandler';
 import { CrashLoopManager, CrashErrorType, defaultCrashLoopConfig } from './auth/CrashLoopManager';
+import { URL } from 'url';
 
 /**
  * HomebridgePlatform
@@ -24,7 +25,7 @@ export class IKHomeBridgeHomebridgePlatform implements DynamicPlatformPlugin {
 
   private locationIDsToIgnore: string[] = [];
   private roomsIDsToIgnore: string[] = [];
-  public auth: SmartThingsAuth;
+  private webhookServer: WebhookServer;
   private crashLoopManager: CrashLoopManager;
 
   private headerDict = {
@@ -46,31 +47,23 @@ export class IKHomeBridgeHomebridgePlatform implements DynamicPlatformPlugin {
   ) {
     this.log.debug('Finished initializing platform:', this.config.name);
 
-    // Initialize CrashLoopManager first as auth might use it if it fails early.
-    // It's a singleton, so getting instance here ensures it's created with platform logger and storage path.
+    // Initialize CrashLoopManager for detecting repeated failures
     this.crashLoopManager = CrashLoopManager.getInstance(this.api.user.storagePath(), this.log);
 
-    // Initialize webhook server first
-    const webhookServer = new WebhookServer(this, this.log);
+    // Initialize webhook server (this also creates SmartAppHandler)
+    this.webhookServer = new WebhookServer(this, this.log);
 
-    // Initialize OAuth2 authentication
-    this.auth = new SmartThingsAuth(
-      this.config.client_id,
-      this.config.client_secret,
-      this.log,
-      this,
-      this.api.user.storagePath(),
-      webhookServer,
-    );
-
-    // Update axios instance with token refresh interceptor
+    // Update axios instance with token from SmartAppHandler
     this.axInstance.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
-      const token = this.auth.getAccessToken();
-      if (token) {
-        if (!config.headers) {
-          config.headers = new AxiosHeaders();
+      const smartAppHandler = this.webhookServer.getSmartAppHandler();
+      if (smartAppHandler) {
+        const token = await smartAppHandler.getAuthToken();
+        if (token) {
+          if (!config.headers) {
+            config.headers = new AxiosHeaders();
+          }
+          config.headers.Authorization = `Bearer ${token}`;
         }
-        config.headers.Authorization = `Bearer ${token}`;
       }
       return config;
     });
@@ -85,34 +78,10 @@ export class IKHomeBridgeHomebridgePlatform implements DynamicPlatformPlugin {
         if (error.response?.status === 401 && !originalRequest._retry) {
           originalRequest._retry = true;
 
-          try {
-            // Get the current refresh token
-            const refreshToken = this.auth.tokenManager.getRefreshToken();
-            if (!refreshToken) {
-              this.log.error('Cannot refresh token: No refresh token available.');
-              this.auth.startAuthFlow(); // Start auth flow if no refresh token
-              return Promise.reject(new Error('No refresh token available for automatic refresh.'));
-            }
-
-            // Attempt to refresh the token using the specific token
-            const newTokenData = await this.auth.refreshTokens(refreshToken);
-            await this.auth.tokenManager.updateTokens(newTokenData);
-
-            // Update the Authorization header with the new token
-            const newToken = this.auth.getAccessToken();
-            if (newToken) {
-              if (!originalRequest.headers) {
-                originalRequest.headers = new AxiosHeaders();
-              }
-              originalRequest.headers.Authorization = `Bearer ${newToken}`;
-              // Retry the original request with the new token
-              return this.axInstance(originalRequest);
-            }
-          } catch (refreshError) {
-            this.log.error('Token refresh failed:', refreshError);
-            // Start new auth flow if refresh fails
-            this.auth.startAuthFlow();
-            return Promise.reject(refreshError);
+          const smartAppHandler = this.webhookServer.getSmartAppHandler();
+          if (smartAppHandler) {
+            this.log.warn('Received 401, SmartApp token may be expired.');
+            this.log.warn('Trigger a device event or reinstall the SmartApp to get fresh tokens.');
           }
         }
 
@@ -128,29 +97,13 @@ export class IKHomeBridgeHomebridgePlatform implements DynamicPlatformPlugin {
       this.log.debug('Executed didFinishLaunching callback');
 
       try {
-        // Check for crash loop BEFORE attempting any auth or API calls
-        if (await this.crashLoopManager.isCrashLoopDetected(defaultCrashLoopConfig)) {
-          this.log.warn('[CRASH LOOP DETECTED] Attempting to recover by clearing tokens and re-authenticating.');
-          // Assuming auth is already initialized enough to call this method
-          // Or SmartThingsAuth constructor needs to be robust enough if called before full init
-          await this.auth.handleCrashLoopRecovery();
-          // After attempting recovery, it's best to let Homebridge restart the plugin cleanly.
-          // Or, if handleCrashLoopRecovery sets a state for re-auth, allow it to proceed.
-          // For now, we'll log and let the user know. A manual restart of Homebridge might be needed
-          // if the auth flow doesn't auto-trigger UI.
-          this.log.warn('[CRASH LOOP RECOVERY] Token clearing initiated. Monitor logs for re-authentication steps.' +
-            ' A Homebridge restart may be required.');
-          // We might want to return here to prevent further execution in a potentially unstable state until re-auth completes.
-          return;
-        }
+        const smartAppHandler = this.webhookServer.getSmartAppHandler();
 
-        // Initialize OAuth2 flow if needed and wait for it to complete
-        const authFlowStarted = await this.auth.initialize();
+        // Check if SmartApp is installed and has valid credentials
+        if (smartAppHandler && smartAppHandler.hasValidCredentials()) {
+          this.log.info('SmartApp credentials found, proceeding with device discovery...');
 
-        // Only proceed with device discovery if auth flow wasn't started and we have a valid token
-        if (!authFlowStarted && this.auth.getAccessToken()) {
-          // If locations or rooms to ignore are configured, then
-          // load request those from Smartthings to build the id lists.
+          // If locations to ignore are configured, load them
           if (this.config.IgnoreLocations) {
             await this.getLocationsToIgnore();
           }
@@ -167,28 +120,53 @@ export class IKHomeBridgeHomebridgePlatform implements DynamicPlatformPlugin {
           this.discoverDevices(devices);
           this.unregisterDevices(devices);
 
-          // Start subscription service if we have a webhook token OR using direct webhook mode (enabled by default)
-          const useDirectWebhook = config.use_direct_webhook !== false;
-          if ((config.WebhookToken && config.WebhookToken !== '') || useDirectWebhook) {
-            this.subscriptionHandler = new SubscriptionHandler(this, this.accessoryObjects, webhookServer);
+          // Start subscription service (direct webhook mode)
+          const useDirectWebhook = this.config.use_direct_webhook !== false;
+          if (useDirectWebhook) {
+            this.subscriptionHandler = new SubscriptionHandler(this, this.accessoryObjects, this.webhookServer);
             this.subscriptionHandler.startService();
           }
-        } else if (authFlowStarted) {
-          // If auth flow was started, log the waiting message
-          this.log.info('Waiting for SmartThings authentication to complete...');
         } else {
-          // Handle case where auth flow wasn't started but token is somehow still invalid (shouldn't happen often)
-          this.log.error('Authentication failed or token invalid after initialization.');
+          // No SmartApp credentials - waiting for user to install SmartApp
+          this.log.warn('=================================================');
+          this.log.warn('SmartApp not installed or credentials not found.');
+          this.log.warn('Please install the SmartApp in SmartThings mobile app:');
+          this.log.warn('1. Open SmartThings app');
+          this.log.warn('2. Go to Menu > SmartApps > + (Add)');
+          this.log.warn('3. Find and install your SmartApp');
+          this.log.warn('4. Restart Homebridge after installation');
+          this.log.warn('=================================================');
         }
       } catch (error) {
-        this.log.error('Error during platform initialization in didFinishLaunching:', error);
-        // Record that an initialization error occurred.
-        // If this error is one that leads to a crash and restart, it will be logged by CrashLoopManager.
+        this.log.error('Error during platform initialization:', error);
+        // Record the failure for crash loop detection
         await this.crashLoopManager.recordPotentialCrash(CrashErrorType.API_INIT_FAILURE);
-        this.log.error('Platform initialization failed. This might lead to a restart.' +
-          ' If this persists, a crash loop recovery might be attempted.');
+
+        // Check if we're in a crash loop
+        const isInCrashLoop = await this.crashLoopManager.isCrashLoopDetected(defaultCrashLoopConfig);
+        if (isInCrashLoop) {
+          this.log.error('=================================================');
+          this.log.error('CRASH LOOP DETECTED - Too many initialization failures');
+          this.log.error('Plugin will not retry automatically.');
+          this.log.error('Please check your configuration and SmartThings connection.');
+          this.log.error('=================================================');
+        }
       }
     });
+  }
+
+  /**
+   * Get the CrashLoopManager instance for external access
+   */
+  public getCrashLoopManagerInstance(): CrashLoopManager {
+    return this.crashLoopManager;
+  }
+
+  /**
+   * Get the SmartAppHandler for external access
+   */
+  public getSmartAppHandler(): SmartAppHandler | null {
+    return this.webhookServer.getSmartAppHandler();
   }
 
   /**
@@ -328,8 +306,6 @@ export class IKHomeBridgeHomebridgePlatform implements DynamicPlatformPlugin {
       return devices;
     } catch (error) {
       this.log.error('Error getting devices from Smartthings: ' + error);
-      // Record this critical failure as it prevents device discovery
-      await this.crashLoopManager.recordPotentialCrash(CrashErrorType.API_INIT_FAILURE);
       throw error;
     }
   }
@@ -455,11 +431,6 @@ export class IKHomeBridgeHomebridgePlatform implements DynamicPlatformPlugin {
     });
 
     return acc;
-  }
-
-  // Method to allow MultiServiceAccessory to get the CrashLoopManager instance
-  public getCrashLoopManagerInstance(): CrashLoopManager {
-    return this.crashLoopManager;
   }
 
   /**

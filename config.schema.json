@@ -10,7 +10,10 @@
       "BaseURL",
       "client_id",
       "client_secret",
-      "GarageDoorMaxPoll"
+      "GarageDoorMaxPoll",
+      "smartapp_id",
+      "server_url",
+      "webhook_port"
     ],
     "properties": {
       "name": {
@@ -48,7 +51,7 @@
       "webhook_port": {
         "title": "Webhook Port",
         "type": "integer",
-        "default": 3000,
+        "default": 3300,
         "description": "Port for webhook server (only used if Server URL is configured)"
       },
       "smartapp_id": {

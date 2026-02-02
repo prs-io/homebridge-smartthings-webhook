@@ -1,10 +1,16 @@
-![](https://raw.githubusercontent.com/homebridge/branding/latest/logos/homebridge-color-round-stylized.png)
+<p align="center">
+<img src="https://raw.githubusercontent.com/homebridge/branding/latest/logos/homebridge-color-round-stylized.png" width="150">
+</p>
+
+<p align="center">
+<a href="https://github.com/homebridge/homebridge/wiki/Verified-Plugins"><img src="https://img.shields.io/badge/homebridge-verified-blueviolet?color=%23491F59&style=flat" alt="verified-by-homebridge"></a>
+<a href="https://www.npmjs.com/package/@prs.io/homebridge-smartthings-webhook"><img src="https://img.shields.io/npm/v/@prs.io/homebridge-smartthings-webhook" alt="npm"></a>
+
+</p>
 
 # Homebridge SmartThings Webhook Plugin
 
 A SmartThings plugin for Homebridge with **direct webhook support** for real-time device updates. No relay service required - events are pushed directly from SmartThings to your Homebridge instance.
-
-[![npm](https://img.shields.io/npm/v/@prs.io/homebridge-smartthings-webhook)](https://www.npmjs.com/package/@prs.io/homebridge-smartthings-webhook)
 
 ## Features
 

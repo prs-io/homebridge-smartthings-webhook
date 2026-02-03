@@ -16,39 +16,37 @@ export class WebhookServer {
     private readonly platform: IKHomeBridgeHomebridgePlatform,
     private readonly log: Logger,
   ) {
-    // Direct webhook mode is enabled by default (webhook server always runs)
-    // Can be explicitly disabled with use_direct_webhook: false
+    // Check if direct webhook mode is enabled (default: true)
     this.useDirectWebhook = this.platform.config.use_direct_webhook !== false;
 
-    // Initialize SmartApp handler for direct webhooks
     if (this.useDirectWebhook) {
+      // Initialize SmartApp handler for webhooks
       this.smartAppHandler = new SmartAppHandler(this.platform, this.log);
-      this.log.info('Direct SmartThings webhook mode enabled');
-    }
+      this.log.info('Direct webhook mode enabled');
 
-    // Always start the webhook server - it handles:
-    // 1. OAuth callbacks for token exchange
-    // 2. SmartApp lifecycle events (direct webhook mode)
-    // 3. Device events from relay service (legacy mode)
-    this.startServer();
+      // Start the webhook server - it handles:
+      // 1. SmartApp lifecycle events (PING, INSTALL, UPDATE, EVENT, UNINSTALL)
+      // 2. Health check endpoints
+      this.startServer();
+    } else {
+      this.log.info('Polling mode enabled - webhook server not started');
+      this.log.info('Note: Polling mode is a temporary fallback. Direct webhook mode is recommended.');
+    }
   }
 
   private startServer(): void {
-    const port = this.platform.config.webhook_port || 3000;
+    const port = this.platform.config.webhook_port || 3300;
 
     this.server = http.createServer((req, res) => {
       const parsedUrl = url.parse(req.url!, true);
 
-      if (parsedUrl.pathname === '/smartapp' || (parsedUrl.pathname === '/' && this.useDirectWebhook && req.method === 'POST')) {
+      if (parsedUrl.pathname === '/smartapp' || (parsedUrl.pathname === '/' && req.method === 'POST')) {
         // Handle SmartThings SmartApp webhook requests
         this.handleSmartAppRequest(req, res);
-      } else if (parsedUrl.pathname === '/' && req.method === 'POST') {
-        // Legacy relay-based device event (for backward compatibility)
-        this.handleDeviceEvent(req, res);
       } else if (parsedUrl.pathname === '/health' || (parsedUrl.pathname === '/' && req.method === 'GET')) {
         // Health check endpoint for UI status check
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'ok', directWebhook: this.useDirectWebhook }));
+        res.end(JSON.stringify({ status: 'ok' }));
       } else if (parsedUrl.pathname === '/status') {
         // SmartApp installation status endpoint for UI
         this.handleStatusRequest(res);
@@ -60,10 +58,8 @@ export class WebhookServer {
 
     this.server.listen(port, () => {
       this.log.info(`Webhook server listening on port ${port}`);
-      if (this.useDirectWebhook) {
-        const serverUrl = this.platform.config.server_url || '<server_url not configured>';
-        this.log.info(`SmartApp webhook endpoint: ${serverUrl}/smartapp`);
-      }
+      const serverUrl = this.platform.config.server_url || '<server_url not configured>';
+      this.log.info(`SmartApp webhook endpoint: ${serverUrl}/smartapp`);
       this.isRunning = true;
     });
 
@@ -91,7 +87,6 @@ export class WebhookServer {
     res.end(JSON.stringify({
       smartAppInstalled: isInstalled,
       installedAppId: installedAppId,
-      directWebhook: this.useDirectWebhook,
     }));
   }
 
@@ -141,32 +136,6 @@ export class WebhookServer {
       this.log.error('Error handling SmartApp request:', error);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Internal server error' }));
-    }
-  }
-
-  private async handleDeviceEvent(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    try {
-      let body = '';
-      req.on('data', chunk => {
-        body += chunk.toString();
-      });
-
-      req.on('end', () => {
-        try {
-          const event = JSON.parse(body) as ShortEvent;
-          this.notifyEventHandlers(event);
-          res.writeHead(200);
-          res.end();
-        } catch (error) {
-          this.log.error('Error parsing device event:', error);
-          res.writeHead(400);
-          res.end();
-        }
-      });
-    } catch (error) {
-      this.log.error('Error handling device event:', error);
-      res.writeHead(500);
-      res.end();
     }
   }
 

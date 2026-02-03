@@ -120,11 +120,13 @@ export class IKHomeBridgeHomebridgePlatform implements DynamicPlatformPlugin {
           this.discoverDevices(devices);
           this.unregisterDevices(devices);
 
-          // Start subscription service (direct webhook mode)
+          // Start subscription service for webhook events (only in direct webhook mode)
           const useDirectWebhook = this.config.use_direct_webhook !== false;
           if (useDirectWebhook) {
             this.subscriptionHandler = new SubscriptionHandler(this, this.accessoryObjects, this.webhookServer);
             this.subscriptionHandler.startService();
+          } else {
+            this.log.info('Direct webhook mode disabled - using polling mode for device status updates');
           }
         } else {
           // No SmartApp credentials - waiting for user to install SmartApp

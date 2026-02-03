@@ -519,14 +519,9 @@ export class MultiServiceAccessory {
     chracteristic: WithUUID<new () => Characteristic>, targetStateCharacteristic?: WithUUID<new () => Characteristic>,
     getTargetState?: () => Promise<CharacteristicValue>): NodeJS.Timer | void {
 
-    // Don't poll if using webhook (either legacy token or direct webhook mode)
-    if (this.platform.config.WebhookToken && this.platform.config.WebhookToken !== '') {
-      return;  // Don't poll if we have a webhook token
-    }
-
-    // Direct webhook mode is enabled by default (use_direct_webhook !== false)
+    // Don't poll if using direct webhook mode (enabled by default)
     if (this.platform.config.use_direct_webhook !== false) {
-      return;  // Don't poll if using direct webhook mode
+      return;  // Don't poll - events come via webhook
     }
 
     if (pollSeconds > 0) {

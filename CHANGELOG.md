@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.1] - Bug Fixes & Improvements
+
+### Fixed
+
+- **Token Refresh Bug**: Fixed `ensureValidToken()` to accept fresh tokens from EVENT lifecycle without requiring refresh token
+- **Credentials File Preservation**: Credentials file (`smartthings_smartapp_token.json`) is now only deleted on explicit UNINSTALL, not on token refresh failures
+- **Polling Mode**: Fixed dual-mode operation - both direct webhook and polling modes now work correctly
+
+### Removed
+
+- **Legacy Relay Service**: Removed unused relay service polling code from `subscriptionHandler.ts`
+- **Unused Constants**: Removed `WEBHOOK_URL` and `WH_CONNECT_RETRY_MINUTES` from `keyValues.ts`
+
+---
+
 ## [3.0.0] - SmartApp-Only Authentication (Breaking Change)
 
 ### Breaking Changes

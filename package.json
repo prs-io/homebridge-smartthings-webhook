@@ -2,7 +2,7 @@
   "private": false,
   "displayName": "Homebridge Smartthings Webhook Plugin",
   "name": "@prs.io/homebridge-smartthings-webhook",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Connects SmartThings devices to Homebridge.  Automatically discovers devices.",
   "license": "Apache-2.0",
   "repository": {

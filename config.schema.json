@@ -38,21 +38,21 @@
         "description": "OAuth2 Client Secret from SmartThings. Obtained using the SmartThings CLI 'apps:create' command. Save this value securely! See [Setup Instructions](https://github.com/aziz66/homebridge-smartthings?tab=readme-ov-file#getting-started) for details."
       },
       "server_url": {
-        "title": "Server URL (Optional)",
+        "title": "Server URL",
         "type": "string",
-        "description": "Your public webhook URL (e.g., ngrok URL). Used for SmartThings to send events. The webhook server runs on port 3000 by default."
+        "description": "Your public webhook URL (e.g., ngrok URL). Required for direct webhook mode. SmartThings sends events directly to your Homebridge instance."
       },
       "use_direct_webhook": {
-        "title": "Use Direct SmartThings Webhook",
+        "title": "Use Direct Webhook Mode",
         "type": "boolean",
         "default": true,
-        "description": "Enabled by default. Receives events directly from SmartThings via webhook. Requires creating a SmartApp in SmartThings Developer Workspace. Set to false to use legacy relay service instead."
+        "description": "When enabled (default), SmartThings pushes events directly via webhook for real-time updates. When disabled, the plugin polls SmartThings API periodically for device status (useful if you can't expose a public URL)."
       },
       "webhook_port": {
         "title": "Webhook Port",
         "type": "integer",
         "default": 3300,
-        "description": "Port for webhook server (only used if Server URL is configured)"
+        "description": "Port for the local webhook server that receives SmartThings events (only used in direct webhook mode)."
       },
       "smartapp_id": {
         "title": "SmartApp ID",

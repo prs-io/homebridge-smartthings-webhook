@@ -199,21 +199,32 @@ export class SmartAppHandler {
   }
 
   /**
-   * Clear saved credentials
+   * Clear in-memory credentials state (does NOT delete the credentials file)
+   * The file is preserved so that if tokens are refreshed via EVENT, we don't lose installedAppId etc.
    */
-  private clearCredentials(): void {
+  private clearInMemoryCredentials(): void {
+    this.log.info('SmartApp: Clearing in-memory credentials (file preserved)');
+    // Clear the refresh timer
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+    // Note: We intentionally do NOT delete smartthings_smartapp_token.json
+    // The file contains installedAppId which is needed for subscriptions
+    // Fresh tokens will come via EVENT requests from SmartThings
+  }
+
+  /**
+   * Delete the credentials file from disk (only called on explicit UNINSTALL)
+   */
+  private deleteCredentialsFile(): void {
     try {
       if (fs.existsSync(this.credentialsPath)) {
         fs.unlinkSync(this.credentialsPath);
-        this.log.info('SmartApp: Cleared saved credentials');
-      }
-      // Clear the refresh timer
-      if (this.refreshTimer) {
-        clearInterval(this.refreshTimer);
-        this.refreshTimer = null;
+        this.log.info('SmartApp: Deleted credentials file');
       }
     } catch (error) {
-      this.log.error(`SmartApp: Failed to clear credentials: ${error}`);
+      this.log.error(`SmartApp: Failed to delete credentials file: ${error}`);
     }
   }
 
@@ -317,15 +328,14 @@ export class SmartAppHandler {
       // Check if refresh token is invalid/expired
       if (error.response?.status === 400 || error.response?.status === 401) {
         this.log.error('SmartApp: Refresh token is invalid or expired');
-        this.log.error('SmartApp: Please reinstall the SmartApp in the SmartThings mobile app');
-        this.log.error('SmartApp: Go to SmartThings app > Menu > SmartApps > Remove and re-add the app');
+        this.log.warn('SmartApp: Will wait for fresh token from next EVENT request');
+        this.log.warn('SmartApp: Trigger a device event in SmartThings or reinstall the SmartApp if issues persist');
 
-        // Clear invalid credentials
-        this.clearCredentials();
-        this.installedAppId = null;
-        this.authToken = null;
+        // Only clear the refresh token (it's invalid), keep auth token (might still work)
+        // Keep installedAppId and locationId (needed for subscriptions)
+        // Do NOT delete the credentials file
         this.refreshToken = null;
-        this.tokenExpiresAt = null;
+        this.clearInMemoryCredentials();
       }
       return false;
     }
@@ -336,7 +346,24 @@ export class SmartAppHandler {
    * Refreshes if needed, returns false if unable to get valid token
    */
   private async ensureValidToken(): Promise<boolean> {
-    if (!this.authToken || !this.refreshToken) {
+    if (!this.authToken) {
+      return false;
+    }
+
+    // If token is still fresh (not expired or expiring within 1 hour), it's valid
+    const oneHourMs = 60 * 60 * 1000;
+    if (this.tokenExpiresAt && Date.now() < (this.tokenExpiresAt - oneHourMs)) {
+      return true; // Token is still fresh, no need to refresh
+    }
+
+    // Token is expired or expiring soon - try to refresh if we have a refresh token
+    if (!this.refreshToken) {
+      // No refresh token, but if token hasn't expired yet, we can still use it
+      if (this.tokenExpiresAt && Date.now() < this.tokenExpiresAt) {
+        this.log.warn('SmartApp: No refresh token available, using existing token until it expires');
+        return true;
+      }
+      this.log.error('SmartApp: Token expired and no refresh token available');
       return false;
     }
 
@@ -737,15 +764,19 @@ export class SmartAppHandler {
   private handleUninstall(_request: SmartAppRequest): any {
     this.log.info('SmartApp: App uninstalled');
 
-    // Clear stored data
+    // Clear stored data in memory
     this.installedAppId = null;
     this.authToken = null;
     this.refreshToken = null;
     this.locationId = null;
     this.tokenExpiresAt = null;
 
-    // Clear saved credentials from disk
-    this.clearCredentials();
+    // Clear in-memory state
+    this.clearInMemoryCredentials();
+
+    // Delete the credentials file since the SmartApp was explicitly uninstalled
+    this.deleteCredentialsFile();
+    this.log.info('SmartApp: Credentials file deleted. Reinstall the SmartApp to get new tokens.');
 
     return {
       statusCode: 200,

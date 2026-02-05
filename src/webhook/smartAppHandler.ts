@@ -101,6 +101,7 @@ export interface InstalledApp {
 
 export interface SmartThingsEvent {
   eventType: SmartThingsEventType;
+  eventTime?: string;
   deviceEvent?: {
     subscriptionName: string;
     eventId: string;
@@ -143,12 +144,17 @@ export class SmartAppHandler {
 
   // Token refresh configuration
   private readonly TOKEN_LIFETIME_MS = 24 * 60 * 60 * 1000; // 24 hours (SmartThings default)
-  private readonly REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000; // Refresh every 12 hours
+  private refreshIntervalMs: number; // Configurable refresh interval
 
   constructor(
     private readonly platform: IKHomeBridgeHomebridgePlatform,
     private readonly log: Logger,
   ) {
+    // Get token refresh interval from config (default 12 hours)
+    const refreshHours = platform.config.tokenRefreshIntervalHours ?? 12;
+    this.refreshIntervalMs = refreshHours * 60 * 60 * 1000;
+    this.log.info(`SmartApp: Token refresh interval set to ${refreshHours} hours`);
+
     // Store credentials in Homebridge storage path
     this.credentialsPath = path.join(platform.api.user.storagePath(), 'smartthings_smartapp_token.json');
     this.loadCredentials();
@@ -170,7 +176,7 @@ export class SmartAppHandler {
         this.log.info(`SmartApp: Loaded saved credentials for installed app: ${this.installedAppId}`);
 
         // Check if token needs immediate refresh
-        if (this.tokenExpiresAt && Date.now() > this.tokenExpiresAt - this.REFRESH_INTERVAL_MS) {
+        if (this.tokenExpiresAt && Date.now() > this.tokenExpiresAt - this.refreshIntervalMs) {
           this.log.info('SmartApp: Token expired or expiring soon, will refresh on startup');
         }
       }
@@ -244,15 +250,15 @@ export class SmartAppHandler {
       }
     }, 10000);
 
-    // Schedule periodic refresh every 12 hours
+    // Schedule periodic refresh
     this.refreshTimer = setInterval(async () => {
       if (this.isInstalled() && this.refreshToken) {
-        this.log.info('SmartApp: Scheduled token refresh (every 12 hours)');
+        this.log.info('SmartApp: Scheduled token refresh');
         await this.refreshAuthToken();
       }
-    }, this.REFRESH_INTERVAL_MS);
+    }, this.refreshIntervalMs);
 
-    this.log.debug('SmartApp: Token refresh scheduled every 12 hours');
+    this.log.debug(`SmartApp: Token refresh scheduled every ${this.refreshIntervalMs / (60 * 60 * 1000)} hours`);
   }
 
   /**
@@ -610,7 +616,7 @@ export class SmartAppHandler {
     this.authToken = installData.authToken;
     this.refreshToken = installData.refreshToken;
     this.locationId = installData.installedApp.locationId;
-    this.tokenExpiresAt = Date.now() + this.TOKEN_LIFETIME_MS; // Assume 24-hour expiry
+    this.tokenExpiresAt = Date.now() + this.TOKEN_LIFETIME_MS;
 
     this.log.info(`SmartApp: Installed app ID: ${this.installedAppId}`);
     this.log.info(`SmartApp: Location ID: ${this.locationId}`);
@@ -655,7 +661,8 @@ export class SmartAppHandler {
     this.authToken = updateData.authToken;
     this.refreshToken = updateData.refreshToken;
     this.locationId = updateData.installedApp.locationId;
-    this.tokenExpiresAt = Date.now() + this.TOKEN_LIFETIME_MS; // Assume 24-hour expiry
+
+    this.log.info('SmartApp: Updated credentials from UPDATE lifecycle');
 
     // Save updated credentials
     this.saveCredentials();
@@ -675,6 +682,9 @@ export class SmartAppHandler {
 
   /**
    * Handle EVENT lifecycle - device event received
+   * NOTE: We do NOT update authToken from EVENT requests.
+   * EVENT tokens are short-lived (minutes) and don't include refreshToken.
+   * We rely on tokens from INSTALL/UPDATE which include refreshToken for long-term use.
    */
   private async handleEvent(request: SmartAppRequest): Promise<any> {
     const eventData = request.eventData;
@@ -684,22 +694,7 @@ export class SmartAppHandler {
       return { statusCode: 400 };
     }
 
-    // Update credentials from the EVENT request (SmartThings provides fresh token with each event)
-    // This allows us to create subscriptions for new devices without persisted credentials
-    const hadCredentialsBefore = this.isInstalled();
-    if (eventData.authToken && eventData.installedApp) {
-      this.authToken = eventData.authToken;
-      this.installedAppId = eventData.installedApp.installedAppId;
-      this.locationId = eventData.installedApp.locationId;
-      this.tokenExpiresAt = Date.now() + this.TOKEN_LIFETIME_MS; // Assume 24-hour expiry
-
-      // If this is the first time we have credentials, sync pending subscriptions
-      if (!hadCredentialsBefore && this.deviceIds.length > 0) {
-        await this.syncPendingSubscriptions();
-      }
-    }
-
-    this.log.info(`SmartApp: Received EVENT with ${eventData.events.length} event(s)`);
+    this.log.debug(`SmartApp: Received EVENT with ${eventData.events.length} event(s)`);
 
     // Process each event
     for (const event of eventData.events) {
@@ -720,6 +715,7 @@ export class SmartAppHandler {
           capability: deviceEvent.capability,
           attribute: deviceEvent.attribute,
           value: deviceEvent.value,
+          eventTime: event.eventTime,
         };
 
         this.notifyEventHandlers(shortEvent);

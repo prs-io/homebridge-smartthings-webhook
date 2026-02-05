@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.2] - Event-Driven Cache & Token Fixes
+
+### Fixed
+
+- **Token Management**: Removed token updates from EVENT lifecycle - EVENT tokens are short-lived (~2 min) and don't include refreshToken. Only INSTALL/UPDATE lifecycles update tokens now.
+- **Cache Updates from Webhook Events**: `processEvent()` now updates the device status cache with event data and `eventTime`, preventing unnecessary API calls for devices receiving webhook events.
+
+### Added
+
+- **`eventTime` Support**: Added `eventTime` field to `ShortEvent` interface, passed from SmartThings event payload to accurately track when events occurred.
+- **`deviceStatusRefreshSec` Config Option**: New config option to control how long device status is cached before making an API call (default: 5 seconds). Devices receiving webhook events use the event timestamp instead.
+- **`tokenRefreshIntervalHours` Config Option**: New config option to control how often the SmartApp auth token is refreshed (default: 12 hours, must be less than 24).
+
+### Removed
+
+- **`basePlatformAccessory.ts`**: Deleted unused legacy file - all accessories use `MultiServiceAccessory`.
+
+### Technical Details
+
+- Devices receiving webhook events → cache updated with `eventTime` → no API calls needed
+- Devices NOT receiving events for > `deviceStatusRefreshSec` → API call is made
+- Token flow: INSTALL provides initial tokens, UPDATE refreshes tokens, EVENT only delivers device state changes
+
+---
+
 ## [3.0.1] - Bug Fixes & Improvements
 
 ### Fixed

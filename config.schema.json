@@ -19,7 +19,7 @@
       "name": {
         "title": "Name",
         "type": "string",
-        "default": "Smartthings Plug (IK)"
+        "default": "Smartthings Plug webhook"
       },
       "BaseURL": {
         "title": "Base URL",
@@ -78,6 +78,20 @@
         "title": "Poll Sensors (zero = don't poll)",
         "type": "integer",
         "default": 5
+      },
+      "deviceStatusRefreshSec": {
+        "title": "Device Status Cache Refresh (seconds)",
+        "type": "integer",
+        "default": 5,
+        "description": "How long to cache device status before making a new API call. Devices receiving webhook events will use the event timestamp, so API calls only happen for inactive devices."
+      },
+      "tokenRefreshIntervalHours": {
+        "title": "Token Refresh Interval (hours)",
+        "type": "integer",
+        "default": 12,
+        "minimum": 1,
+        "maximum": 23,
+        "description": "How often to refresh the SmartApp auth token. SmartThings tokens are valid for 24 hours, so this should be less than 24."
       },
       "PollSwitchesAndLightsSeconds": {
         "title": "Poll Switches and Lights (zero = don't poll)",

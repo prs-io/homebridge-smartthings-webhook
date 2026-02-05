@@ -166,6 +166,7 @@ export class MultiServiceAccessory {
 
   protected statusQueryInProgress = false;
   protected lastStatusResult = true;
+  protected deviceStatusRefreshMs: number;
 
   // CrashLoopManager for detecting repeated failures
   private crashLoopManager: CrashLoopManager;
@@ -188,6 +189,10 @@ export class MultiServiceAccessory {
 
     // Get CrashLoopManager instance from platform
     this.crashLoopManager = platform.getCrashLoopManagerInstance();
+
+    // Get device status refresh interval from config (default 5 seconds)
+    const refreshSec = platform.config.deviceStatusRefreshSec ?? 5;
+    this.deviceStatusRefreshMs = refreshSec * 1000;
 
     this.commandURL = 'devices/' + accessory.context.device.deviceId + '/commands';
     this.statusURL = 'devices/' + accessory.context.device.deviceId + '/status';
@@ -415,7 +420,7 @@ export class MultiServiceAccessory {
   async refreshStatus(): Promise<boolean> {
     return new Promise((resolve) => {
       this.log.debug(`Refreshing status for ${this.name} - current timestamp is ${this.deviceStatusTimestamp}`);
-      if (Date.now() - this.deviceStatusTimestamp > 5000) {
+      if (Date.now() - this.deviceStatusTimestamp > this.deviceStatusRefreshMs) {
         // If there is already a call to smartthings to update status for this device, don't issue another one until
         // we return from that.
         if (this.statusQueryInProgress) {
@@ -631,13 +636,36 @@ export class MultiServiceAccessory {
   public processEvent(event: ShortEvent): void {
     this.log.debug(`Received events for ${this.name}`);
 
+    // Update the cache with the event data
+    const component = this.components.find(c => c.componentId === event.componentId);
+    if (component) {
+      // Ensure the capability object exists
+      if (!component.status[event.capability]) {
+        component.status[event.capability] = {};
+      }
+      // Ensure the attribute object exists
+      const capabilityStatus = component.status[event.capability] as Record<string, unknown>;
+      if (!capabilityStatus[event.attribute]) {
+        capabilityStatus[event.attribute] = {};
+      }
+      // Update the value
+      (capabilityStatus[event.attribute] as Record<string, unknown>).value = event.value;
+
+      // Update timestamp from event time, or fallback to now
+      this.deviceStatusTimestamp = event.eventTime
+        ? new Date(event.eventTime).getTime()
+        : Date.now();
+
+      this.log.debug(`Cache updated for ${this.name}:${event.componentId} - ${event.capability}.${event.attribute} = ${event.value}`);
+    }
+
+    // Find and notify the service
     const service = this.services.find(s => s.componentId === event.componentId && s.capabilities.find(c => c === event.capability));
 
     if (service) {
       this.log.debug(`Event for ${this.name}:${event.componentId} - ${event.value}`);
       service.processEvent(event);
     }
-
   }
 
 }

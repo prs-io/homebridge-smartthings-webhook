@@ -28,13 +28,10 @@ export class IKHomeBridgeHomebridgePlatform implements DynamicPlatformPlugin {
   private webhookServer: WebhookServer;
   private crashLoopManager: CrashLoopManager;
 
-  private headerDict = {
-    'Authorization': 'Bearer: ' + this.config.AccessToken,
-  };
 
   public readonly axInstance = axios.default.create({
     baseURL: this.config.BaseURL,
-    headers: this.headerDict,
+    headers: new AxiosHeaders(),
   });
 
   private accessoryObjects: MultiServiceAccessory[] = [];
@@ -59,9 +56,6 @@ export class IKHomeBridgeHomebridgePlatform implements DynamicPlatformPlugin {
       if (smartAppHandler) {
         const token = await smartAppHandler.getAuthToken();
         if (token) {
-          if (!config.headers) {
-            config.headers = new AxiosHeaders();
-          }
           config.headers.Authorization = `Bearer ${token}`;
         }
       }

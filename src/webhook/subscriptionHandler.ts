@@ -11,6 +11,7 @@ export interface ShortEvent {
   componentId: string;
   capability: string;
   attribute: string;
+  eventTime?: string;
 }
 
 export class SubscriptionHandler {
